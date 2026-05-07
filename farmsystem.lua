@@ -34,6 +34,7 @@ local adjustedTime = nil
 local adjustedTimeForDedup = nil
 local formatTime = nil
 local timerSessionId = nil
+local timerRuntimeAnchors = {}
 
 -- Main window
 local mainWin
@@ -269,28 +270,19 @@ local function saveFarm(farm)
     saveAllFarmsData()
 end
 
-local function reanchorLoadedFarmTimers()
-    local sessionId = getTimerSessionId()
-    local okMs, nowMs = pcall(function() return api.Time:GetUiMsec() end)
-    if not okMs or not nowMs then return false end
-
-    local nowTs = nowUnix()
-    local changed = false
+local function prepareLoadedFarmTimers()
     for _, farm in ipairs(farms or {}) do
-        for _, entry in ipairs(farm.doodads or {}) do
-            local expiryUnix = tonumber(entry.expiryUnix)
-            if expiryUnix and entry.captureSession ~= sessionId then
-                entry.displayTime = expiryUnix - nowTs
-                entry.captureUiMsec = nowMs
-                entry.captureSession = sessionId
-                changed = true
-            end
+        for idx, entry in ipairs(farm.doodads or {}) do
+            entry._runtimeKey = tostring(farm.id or "")
+                .. ":" .. tostring(idx)
+                .. ":" .. tostring(entry.expiryUnix or "")
+                .. ":" .. tostring(entry.name or "")
+                .. ":" .. tostring(entry.owner or "")
         end
     end
-    return changed
 end
 
-local function loadAllFarms(reanchorTimers)
+local function loadAllFarms()
     farms = {}
     local addonSettings = api.GetSettings("tax_tracker") or {}
     local data = addonSettings[ALL_FARMS_KEY]
@@ -302,9 +294,7 @@ local function loadAllFarms(reanchorTimers)
             end
         end
     end
-    if reanchorTimers and reanchorLoadedFarmTimers() then
-        saveAllFarmsData()
-    end
+    prepareLoadedFarmTimers()
 end
 
 local function createFarm(name, posData)
@@ -714,10 +704,11 @@ end
 adjustedTime = function(entry)
     if not entry then return 0 end
 
-    -- Original Farm Tracker path, but only for entries anchored in this addon
+    local nowMs = api.Time:GetUiMsec()
+
+    -- Original Farm Tracker path, but only for entries captured in this addon
     -- session. Old saved UiMsec values belong to previous client uptimes.
     if entry.captureSession == getTimerSessionId() and entry.captureUiMsec and entry.displayTime then
-        local nowMs = api.Time:GetUiMsec()
         if nowMs >= entry.captureUiMsec then
             local remainingMs = (entry.captureUiMsec + entry.displayTime * 1000) - nowMs
             return math.ceil(remainingMs / 1000)
@@ -726,7 +717,17 @@ adjustedTime = function(entry)
 
     local expiryUnix = tonumber(entry.expiryUnix)
     if expiryUnix then
-        return expiryUnix - nowUnix()
+        local key = entry._runtimeKey or tostring(expiryUnix) .. ":" .. tostring(entry.name or "") .. ":" .. tostring(entry.owner or "")
+        local anchor = timerRuntimeAnchors[key]
+        if not anchor then
+            anchor = {
+                displayTime = expiryUnix - nowUnix(),
+                captureUiMsec = nowMs,
+            }
+            timerRuntimeAnchors[key] = anchor
+        end
+        local remainingMs = (anchor.captureUiMsec + anchor.displayTime * 1000) - nowMs
+        return math.ceil(remainingMs / 1000)
     end
 
     if not entry.expiry then return 0 end
@@ -885,6 +886,12 @@ local function tryAddDoodad(farm, info)
         expiryUnix     = expiryUnixStr,
         expiry         = expiry,
     })
+    local inserted = farm.doodads[#farm.doodads]
+    inserted._runtimeKey = tostring(farm.id or "")
+        .. ":" .. tostring(#farm.doodads)
+        .. ":" .. tostring(inserted.expiryUnix or "")
+        .. ":" .. tostring(inserted.name or "")
+        .. ":" .. tostring(inserted.owner or "")
     saveFarm(farm)
     return true
 end
@@ -3244,7 +3251,7 @@ local function OnLoad()
     ok, err = pcall(loadSettings)
     if not ok then log("Failed to load settings: " .. tostring(err)) end
 
-    ok, err = pcall(function() loadAllFarms(true) end)
+    ok, err = pcall(loadAllFarms)
     if not ok then log("Failed to load farm data: " .. tostring(err)) end
 
     ok, err = pcall(function() setDoodadListenerEnabled(settings.autotrackerEnabled) end)
