@@ -1,0 +1,32 @@
+# ArcheAge Classic addon git ignore file
+
+# Debug and log files
+*.log
+*_debug.log
+tax_tracker_UNIFIED.log
+
+# Temporary files
+*.tmp
+*.temp
+
+# Archive folders
+archive/
+archive_cleanup/
+
+# Backup files
+*_backup*.lua
+*_broken*.lua
+main_full_working.lua
+
+# Development files
+DEVELOPMENT_LOG_*.md
+diagnose_issue.lua
+complete_fix.lua
+manual_restore.lua
+restore_lands.lua
+
+# Old system files (if not needed)
+time_system.lua
+update_system.lua 
+loans_system.lua
+farm_system.lua
