@@ -50,6 +50,8 @@ local function fmt2(n) return string.format("%.2f", n or 0) end
 local function is_checked(w) return (w and w.GetChecked and w:GetChecked()) and true or false end
 local function getPure(btn)
   if not btn then return "" end
+  if btn.GetPureText then return btn:GetPureText() or "" end
+  if btn.cleanText then return btn.cleanText end
   local t = (btn.GetText and btn:GetText()) or ""
   return (t:gsub("%s*▾%s*$",""))
 end
@@ -305,6 +307,82 @@ local function addTint(win, id, alpha, topPad)
   if bg.Enable then bg:Enable(false) end
   bg:Show(true)
   return bg
+end
+
+local EDITOR_UI = {
+  white = {1, 1, 1, 1},
+  muted = {0.72, 0.72, 0.72, 1},
+  gold = {1, 0.84, 0, 1},
+  green = {0.12, 0.28, 0.15, 0.95},
+  red = {0.24, 0.09, 0.09, 0.95},
+  button = {0.11, 0.11, 0.13, 0.92},
+  panel = {0.05, 0.05, 0.06, 0.62},
+  header = {0.09, 0.09, 0.11, 0.95},
+  input = {0.11, 0.11, 0.125, 0.72},
+  groupDetails = {0.07, 0.07, 0.08, 0.74},
+  groupTax = {0.055, 0.06, 0.07, 0.74},
+  groupCoords = {0.065, 0.065, 0.075, 0.74},
+  groupActions = {0.05, 0.05, 0.06, 0.76},
+  rowOdd = {0.08, 0.08, 0.095, 0.72},
+  rowEven = {0.12, 0.12, 0.135, 0.72}
+}
+
+local function addEditorPanel(parent, id, x, y, width, height, color)
+  if not parent then return nil end
+  local c = color or EDITOR_UI.panel
+  local box = parent:CreateChildWidget("emptywidget", id, 0, true)
+  box:SetExtent(width, height)
+  box:AddAnchor("TOPLEFT", parent, x, y)
+  if box.EnableMouse then box:EnableMouse(false) end
+  local bg = box:CreateColorDrawable(c[1], c[2], c[3], c[4], "background")
+  bg:AddAnchor("TOPLEFT", box, 0, 0)
+  bg:AddAnchor("BOTTOMRIGHT", box, 0, 0)
+  bg:Show(true)
+  box:Show(true)
+  return box
+end
+
+local function setEditorTextColor(widget, color)
+  if widget and widget.style and widget.style.SetColor then
+    local c = color or EDITOR_UI.white
+    widget.style:SetColor(c[1], c[2], c[3], c[4])
+  elseif widget and ApplyTextColor and FONT_COLOR then
+    ApplyTextColor(widget, FONT_COLOR.DEFAULT)
+  end
+end
+
+local function styleEditorButton(button, text, width, height, tone)
+  if not button then return end
+  button:SetText("")
+  local c = tone or EDITOR_UI.button
+  button._editorBg = button:CreateColorDrawable(c[1], c[2], c[3], c[4], "background")
+  button._editorBg:AddAnchor("TOPLEFT", button, 0, 0)
+  button._editorBg:AddAnchor("BOTTOMRIGHT", button, 0, 0)
+  button._editorBg:Show(true)
+  local labelId = "editorButtonLabel"
+  pcall(function() if button.GetId then labelId = tostring(button:GetId()) .. ".editorLabel" end end)
+  button._editorLabel = button:CreateChildWidget("label", labelId, 0, true)
+  button._editorLabel:SetExtent(width, math.max(1, height - 2))
+  button._editorLabel:AddAnchor("TOPLEFT", button, 0, 1)
+  button._editorLabel:SetText(text or "")
+  if button._editorLabel.style then
+    if button._editorLabel.style.SetFontSize then button._editorLabel.style:SetFontSize(11) end
+    if button._editorLabel.style.SetAlign then button._editorLabel.style:SetAlign(ALIGN.CENTER) end
+    if button._editorLabel.style.SetColor then button._editorLabel.style:SetColor(1, 1, 1, 1) end
+  end
+  if button._editorLabel.EnablePick then button._editorLabel:EnablePick(false) end
+  button._editorLabel:Show(true)
+  function button:SetCleanText(nextText)
+    if self._editorLabel then self._editorLabel:SetText(nextText or "") end
+  end
+end
+
+local function setControlText(control, text)
+  if control and control.SetCleanText then
+    control:SetCleanText(text or "")
+  elseif control and control.SetText then
+    control:SetText(text or "")
+  end
 end
 
 -- Simple dropdown function (from working version - user's preferred implementation)
@@ -732,12 +810,60 @@ function UIManager._createFormControls()
     return false
   end
 
-  local LEFT_X = 24
+  local LEFT_X = 34
   local LABEL_W = 92
-  local FIELD_X = 125
+  local FIELD_X = 135
   local RIGHT_X = 560
-  local ROW1_Y = 62
+  local ROW1_Y = 116
   local ROW_H = 42
+  local TAX_Y = 274
+  local CHECK_Y = 316
+  local COORD_Y = 390
+
+  addEditorPanel(mainWin, "editorRootPanel", 12, 42, 1016, 558, EDITOR_UI.panel)
+  addEditorPanel(mainWin, "editorHeaderPanel", 12, 42, 1016, 28, EDITOR_UI.header)
+  local editorTitle = mainWin:CreateChildWidget("label", "editorTitle", 0, true)
+  editorTitle:SetText("Land Editor")
+  editorTitle:SetExtent(260, 22)
+  editorTitle:AddAnchor("TOPLEFT", mainWin, 26, 47)
+  if editorTitle.style then
+    editorTitle.style:SetAlign(ALIGN.LEFT)
+    editorTitle.style:SetFontSize(13)
+  end
+  setEditorTextColor(editorTitle, EDITOR_UI.gold)
+  editorTitle:Show(true)
+
+  addEditorPanel(mainWin, "editorDetailsGroup", 20, 84, 1000, 150, EDITOR_UI.groupDetails)
+  addEditorPanel(mainWin, "editorDetailsHeader", 20, 84, 1000, 24, EDITOR_UI.header)
+  addEditorPanel(mainWin, "editorTaxGroup", 20, 242, 1000, 106, EDITOR_UI.groupTax)
+  addEditorPanel(mainWin, "editorTaxHeader", 20, 242, 1000, 24, EDITOR_UI.header)
+  addEditorPanel(mainWin, "editorCoordsGroup", 20, 358, 1000, 88, EDITOR_UI.groupCoords)
+  addEditorPanel(mainWin, "editorCoordsHeader", 20, 358, 1000, 24, EDITOR_UI.header)
+  addEditorPanel(mainWin, "editorActionsPanel", 28, 482, 984, 72, EDITOR_UI.groupActions)
+
+  local detailsTitle = mainWin:CreateChildWidget("label", "editorDetailsTitle", 0, true)
+  detailsTitle:SetText("Land Details")
+  detailsTitle:SetExtent(260, 20)
+  detailsTitle:AddAnchor("TOPLEFT", mainWin, 34, 88)
+  if detailsTitle.style then detailsTitle.style:SetAlign(ALIGN.LEFT); detailsTitle.style:SetFontSize(12) end
+  setEditorTextColor(detailsTitle, EDITOR_UI.gold)
+  detailsTitle:Show(true)
+
+  local taxTitle = mainWin:CreateChildWidget("label", "editorTaxTitle", 0, true)
+  taxTitle:SetText("Tax Rules")
+  taxTitle:SetExtent(260, 20)
+  taxTitle:AddAnchor("TOPLEFT", mainWin, 34, 246)
+  if taxTitle.style then taxTitle.style:SetAlign(ALIGN.LEFT); taxTitle.style:SetFontSize(12) end
+  setEditorTextColor(taxTitle, EDITOR_UI.gold)
+  taxTitle:Show(true)
+
+  local coordsTitle = mainWin:CreateChildWidget("label", "editorCoordsTitle", 0, true)
+  coordsTitle:SetText("Coordinates")
+  coordsTitle:SetExtent(260, 20)
+  coordsTitle:AddAnchor("TOPLEFT", mainWin, 34, 362)
+  if coordsTitle.style then coordsTitle.style:SetAlign(ALIGN.LEFT); coordsTitle.style:SetFontSize(12) end
+  setEditorTextColor(coordsTitle, EDITOR_UI.gold)
+  coordsTitle:Show(true)
 
   local function placeLabel(lbl, x, y, w)
     if not lbl then return end
@@ -746,8 +872,9 @@ function UIManager._createFormControls()
     lbl:AddAnchor("TOPLEFT", mainWin, x, y)
     if lbl.style then
       lbl.style:SetAlign(ALIGN.LEFT)
-      lbl.style:SetFontSize(FONT_SIZE.MIDDLE or 16)
+      lbl.style:SetFontSize(12)
     end
+    setEditorTextColor(lbl, EDITOR_UI.muted)
   end
 
   local function placeField(field, x, y, w, h)
@@ -755,17 +882,24 @@ function UIManager._createFormControls()
     field:RemoveAllAnchors()
     field:SetExtent(w, h or 28)
     field:AddAnchor("TOPLEFT", mainWin, x, y)
+    if field.style then
+      if field.style.SetFontSize then field.style:SetFontSize(12) end
+      if field.style.SetAlign then field.style:SetAlign(ALIGN.LEFT) end
+      if field.style.SetColor then field.style:SetColor(1, 1, 1, 1) end
+    end
   end
   
   -- Owned label (top right) - matching working version exactly
   local ownedLabel = mainWin:CreateChildWidget("label", "owned", 0, true)
   ownedLabel:SetExtent(180, 24)
   ownedLabel:AddAnchor("TOPRIGHT", mainWin, -24, 16)
-  if ownedLabel.style then ownedLabel.style:SetAlign(ALIGN.RIGHT); ownedLabel.style:SetFontSize(FONT_SIZE.MIDDLE or 16) end
+  if ownedLabel.style then ownedLabel.style:SetAlign(ALIGN.RIGHT); ownedLabel.style:SetFontSize(12) end
+  setEditorTextColor(ownedLabel, EDITOR_UI.gold)
   ownedLabel:SetText("Owned: 0 (+0%)")
   UIManager.components.ownedLabel = ownedLabel
   
   -- Land Name field (full width at top) - using gui.AddEditBox like working version
+  addEditorPanel(mainWin, "editorLandNameInputBg", FIELD_X - 3, ROW1_Y - 1, 436, 30, EDITOR_UI.input)
   local landName = gui.AddEditBox(mainWin, "landName",
       "TOPLEFT", mainWin, LEFT_X, ROW1_Y, 500, 28, 64, "", "Land Name:")
   placeLabel(landName.label, LEFT_X, ROW1_Y + 2, LABEL_W)
@@ -798,38 +932,25 @@ function UIManager._createFormControls()
     end
   end
   
-  -- Character dropdown using W_CTRL.CreateComboBox like working version
-  local characterSelect = W_CTRL.CreateComboBox(mainWin)
-  characterSelect:SetExtent(180, 28)
+  -- Character dropdown using the same clean dropdown treatment as the loan list
+  addEditorPanel(mainWin, "editorCharInputBg", FIELD_X - 3, ROW1_Y + ROW_H - 1, 186, 30, EDITOR_UI.input)
+  local characterData = {
+    { id = "characters", name = "Characters", tier = 0, expanded = true, value = "category_characters" }
+  }
+  for i, char in ipairs(characterSelectOptions) do
+    table.insert(characterData, { id = "character_" .. i, name = char, tier = 1, expanded = false, value = char })
+  end
+
+  local characterSelect = HierarchicalDropdown.create(mainWin, "characterSelect", 180, characterData, "All Characters", function(val, label)
+    if val == "All Characters" then
+      currentCharacter = ""
+    elseif val and val ~= "" then
+      currentCharacter = val
+    end
+  end, 220, { cleanStyle = true })
+  characterSelect:RemoveAllAnchors()
   characterSelect:AddAnchor("TOPLEFT", mainWin, FIELD_X, ROW1_Y + ROW_H)
-  characterSelect.dropdownItem = characterSelectOptions
-  
-  -- Set initial selection
-  local initialIndex = 1
-  if currentCharacter ~= "" then
-    for i, char in ipairs(characterSelectOptions) do
-      if char == currentCharacter then
-        initialIndex = i
-        break
-      end
-    end
-  end
-  characterSelect:Select(initialIndex)
-  
-  -- Handle selection changes using SelectedProc like working version
-  function characterSelect:SelectedProc()
-    local selectedIndex = self:GetSelectedIndex()
-    if selectedIndex and characterSelectOptions[selectedIndex] then
-      local selectedChar = characterSelectOptions[selectedIndex]
-      if selectedChar == "All Characters" then
-        currentCharacter = ""
-      else
-        currentCharacter = selectedChar
-      end
-      
-      -- TODO: Add character filtering logic here when needed
-    end
-  end
+  setControlText(characterSelect, currentCharacter ~= "" and currentCharacter or "All Characters")
   
   UIManager.components.characterSelect = characterSelect
   
@@ -930,9 +1051,10 @@ function UIManager._createFormControls()
   end
   
   -- Create land type dropdown using hierarchical implementation (like Zeroun's approach)
+  addEditorPanel(mainWin, "editorTypeInputBg", FIELD_X - 3, ROW1_Y + ROW_H * 2 - 1, 226, 30, EDITOR_UI.input)
   local landTypeBtn = HierarchicalDropdown.create(mainWin, "landType", 220, hierarchicalLandTypes, "Select type", function(val, label)
     UIManager.recompute()
-  end, 300)
+  end, 300, { cleanStyle = true })
   landTypeBtn:RemoveAllAnchors()
   landTypeBtn:AddAnchor("TOPLEFT", mainWin, FIELD_X, ROW1_Y + ROW_H * 2)
   UIManager.components.landTypeBtn = landTypeBtn
@@ -1019,36 +1141,39 @@ function UIManager._createFormControls()
   }
   
   -- Create zone dropdown using hierarchical implementation (like Zeroun's approach)
+  addEditorPanel(mainWin, "editorZoneInputBg", RIGHT_X + 61, ROW1_Y + ROW_H * 2 - 1, 226, 30, EDITOR_UI.input)
   local zoneBtn = HierarchicalDropdown.create(mainWin, "zone", 220, hierarchicalZones, "Select zone", function(val, label)
-  end, 300)
+  end, 300, { cleanStyle = true })
   zoneBtn:RemoveAllAnchors()
   zoneBtn:AddAnchor("TOPLEFT", mainWin, RIGHT_X + 64, ROW1_Y + ROW_H * 2)
   UIManager.components.zoneBtn = zoneBtn
   
   -- Tax Row (Base and Real side by side with proper spacing) - like working version
-  gui.AddLabel(mainWin, "baseLabel", "Base Tax:", "TOPLEFT", mainWin, LEFT_X, ROW1_Y + ROW_H * 3)
-  placeLabel(mainWin.baseLabel, LEFT_X, ROW1_Y + ROW_H * 3 + 2, LABEL_W)
+  gui.AddLabel(mainWin, "baseLabel", "Base Tax:", "TOPLEFT", mainWin, LEFT_X, TAX_Y)
+  placeLabel(mainWin.baseLabel, LEFT_X, TAX_Y + 2, LABEL_W)
+  addEditorPanel(mainWin, "editorBaseTaxInputBg", FIELD_X - 3, TAX_Y - 1, 126, 30, EDITOR_UI.input)
   local baseTaxValue = gui.AddEditBox(mainWin, "baseTaxValue",
-      "TOPLEFT", mainWin, FIELD_X, ROW1_Y + ROW_H * 3, 120, 28, nil, "", nil)
-  placeField(baseTaxValue, FIELD_X, ROW1_Y + ROW_H * 3, 120, 28)
+      "TOPLEFT", mainWin, FIELD_X, TAX_Y, 120, 28, nil, "", nil)
+  placeField(baseTaxValue, FIELD_X, TAX_Y, 120, 28)
   if baseTaxValue.SetReadOnly then baseTaxValue:SetReadOnly(true) end
   UIManager.components.baseTaxValue = baseTaxValue
   
-  gui.AddLabel(mainWin, "realLabel", "Real Tax:", "TOPLEFT", mainWin, RIGHT_X, ROW1_Y + ROW_H * 3 + 2)
-  placeLabel(mainWin.realLabel, RIGHT_X, ROW1_Y + ROW_H * 3 + 2, 75)
+  gui.AddLabel(mainWin, "realLabel", "Real Tax:", "TOPLEFT", mainWin, RIGHT_X, TAX_Y + 2)
+  placeLabel(mainWin.realLabel, RIGHT_X, TAX_Y + 2, 75)
+  addEditorPanel(mainWin, "editorRealTaxInputBg", RIGHT_X + 85, TAX_Y - 1, 126, 30, EDITOR_UI.input)
   local realTaxValue = gui.AddEditBox(mainWin, "realTaxValue",
-      "TOPLEFT", mainWin, RIGHT_X + 88, ROW1_Y + ROW_H * 3, 120, 28, nil, "", nil)
-  placeField(realTaxValue, RIGHT_X + 88, ROW1_Y + ROW_H * 3, 120, 28)
+      "TOPLEFT", mainWin, RIGHT_X + 88, TAX_Y, 120, 28, nil, "", nil)
+  placeField(realTaxValue, RIGHT_X + 88, TAX_Y, 120, 28)
   if realTaxValue.SetReadOnly then realTaxValue:SetReadOnly(true) end
   UIManager.components.realTaxValue = realTaxValue
   
   -- Checkboxes Row (aligned under taxes with proper spacing) - like working version
   local hostile = gui.AddCheckbox(mainWin, "chkHostile", "Hostile Faction Tax (+100%)", false,
-      "TOPLEFT", mainWin, LEFT_X, ROW1_Y + ROW_H * 4, 4)
+      "TOPLEFT", mainWin, LEFT_X, CHECK_Y, 4)
   local territory = gui.AddCheckbox(mainWin, "chkTerritory", "Territory Tax (+50%)", false,
-      "TOPLEFT", mainWin, LEFT_X + 280, ROW1_Y + ROW_H * 4, 4)
+      "TOPLEFT", mainWin, LEFT_X + 280, CHECK_Y, 4)
   local exempt = gui.AddCheckbox(mainWin, "chkTaxExempt", "Tax Exempt", false,
-      "TOPLEFT", mainWin, LEFT_X + 530, ROW1_Y + ROW_H * 4, 4)
+      "TOPLEFT", mainWin, LEFT_X + 530, CHECK_Y, 4)
   
   UIManager.components.chkHostile = hostile
   UIManager.components.chkTerritory = territory
@@ -1060,24 +1185,22 @@ function UIManager._createFormControls()
   if exempt.SetHandler then exempt:SetHandler("OnCheckChanged", UIManager.recompute) end
   
   -- Coordinates Section - simplified version of working version  
-  gui.AddLabel(mainWin, "coordsHeader", "Coordinates:", "TOPLEFT", mainWin, LEFT_X, ROW1_Y + ROW_H * 5)
-  placeLabel(mainWin.coordsHeader, LEFT_X, ROW1_Y + ROW_H * 5 + 2, LABEL_W)
+  gui.AddLabel(mainWin, "coordsHeader", "Coordinates:", "TOPLEFT", mainWin, LEFT_X, COORD_Y)
+  placeLabel(mainWin.coordsHeader, LEFT_X, COORD_Y + 2, LABEL_W)
   
   -- Simple coordinate display (will enhance later with full lat/lon system)
+  addEditorPanel(mainWin, "editorCoordsInputBg", FIELD_X - 3, COORD_Y - 1, 336, 30, EDITOR_UI.input)
   local coordsDisplay = gui.AddEditBox(mainWin, "coordsDisplay",
-      "TOPLEFT", mainWin, FIELD_X, ROW1_Y + ROW_H * 5, 330, 28, nil, "0,0 (Click Track Position)", nil)
-  placeField(coordsDisplay, FIELD_X, ROW1_Y + ROW_H * 5, 330, 28)
+      "TOPLEFT", mainWin, FIELD_X, COORD_Y, 330, 28, nil, "0,0 (Click Track Position)", nil)
+  placeField(coordsDisplay, FIELD_X, COORD_Y, 330, 28)
   if coordsDisplay.SetReadOnly then coordsDisplay:SetReadOnly(true) end
   UIManager.components.coordsDisplay = coordsDisplay
   
   -- Track Position Button
   local trackPosBtn = mainWin:CreateChildWidget("button", "trackPosBtn", 0, true)
-  if api.Interface.ApplyButtonSkin then
-    api.Interface:ApplyButtonSkin(trackPosBtn, BUTTON_BASIC.DEFAULT)
-  end
-  trackPosBtn:SetText("Track Current Position")
-  trackPosBtn:SetExtent(200, 32)
-  trackPosBtn:AddAnchor("TOPLEFT", mainWin, RIGHT_X, ROW1_Y + ROW_H * 5 - 2)
+  trackPosBtn:SetExtent(180, 28)
+  trackPosBtn:AddAnchor("TOPLEFT", mainWin, RIGHT_X, COORD_Y)
+  styleEditorButton(trackPosBtn, "Track Position", 180, 28, EDITOR_UI.green)
   
   function trackPosBtn:OnClick()
     local coords = getCurrentSextant()
@@ -1095,12 +1218,9 @@ function UIManager._createFormControls()
   
   -- Track Target Position Button (next to Track Position button, like working version)
   local trackTargetBtn = mainWin:CreateChildWidget("button", "trackTargetBtn", 0, true)
-  if api.Interface.ApplyButtonSkin then
-    api.Interface:ApplyButtonSkin(trackTargetBtn, BUTTON_BASIC.DEFAULT)
-  end
-  trackTargetBtn:SetText("Auto-Fill from Target")
-  trackTargetBtn:SetExtent(200, 32)
-  trackTargetBtn:AddAnchor("TOPLEFT", mainWin, RIGHT_X + 215, ROW1_Y + ROW_H * 5 - 2)
+  trackTargetBtn:SetExtent(180, 28)
+  trackTargetBtn:AddAnchor("TOPLEFT", mainWin, RIGHT_X + 190, COORD_Y)
+  styleEditorButton(trackTargetBtn, "From Target", 180, 28, EDITOR_UI.green)
   
   function trackTargetBtn:OnClick()
     -- Get coordinates and target name from getTargetSextant
@@ -1127,7 +1247,7 @@ function UIManager._createFormControls()
       local matchedLandType = matchLandTypeFromName(targetName)
       if matchedLandType then
         if UIManager.components.landTypeBtn then
-          UIManager.components.landTypeBtn:SetText(matchedLandType)
+          setControlText(UIManager.components.landTypeBtn, matchedLandType)
         end
       end
 
@@ -1142,7 +1262,7 @@ function UIManager._createFormControls()
     local playerName = getCurrentPlayerName()
     if playerName and playerName ~= "" then
       if UIManager.components.characterSelect then
-        UIManager.components.characterSelect:SetText(playerName)
+        setControlText(UIManager.components.characterSelect, playerName)
         currentCharacter = playerName
       end
     end
@@ -1150,7 +1270,7 @@ function UIManager._createFormControls()
     -- Fill zone with current player zone using GetCurrentZoneGroup
     local zoneName = getCurrentZoneName()
     if zoneName and zoneName ~= "" and UIManager.components.zoneBtn then
-      UIManager.components.zoneBtn:SetText(zoneName)
+      setControlText(UIManager.components.zoneBtn, zoneName)
     end
   end
   trackTargetBtn:SetHandler("OnClick", trackTargetBtn.OnClick)
@@ -1158,12 +1278,9 @@ function UIManager._createFormControls()
   
   -- ADD button (bottom right) - same pattern as working buttons above
   local addBtn = mainWin:CreateChildWidget("button", "addBtn", 0, true)
-  if api.Interface.ApplyButtonSkin then
-    api.Interface:ApplyButtonSkin(addBtn, BUTTON_BASIC.DEFAULT)
-  end
-  addBtn:SetText("ADD")
-  addBtn:SetExtent(220, 50)
-  addBtn:AddAnchor("BOTTOMRIGHT", mainWin, -24, -20)
+  addBtn:SetExtent(200, 42)
+  addBtn:AddAnchor("BOTTOMRIGHT", mainWin, -36, -36)
+  styleEditorButton(addBtn, "ADD", 200, 42, EDITOR_UI.green)
   UIManager.components.addButton = addBtn
   
   function addBtn:OnClick()
@@ -1299,8 +1416,8 @@ function UIManager.clearEditMode()
   
   -- Clear form fields (new components)
   if UIManager.components.landName then UIManager.components.landName:SetText("") end
-  if UIManager.components.landTypeBtn then UIManager.components.landTypeBtn:SetText("Select type") end
-  if UIManager.components.zoneBtn then UIManager.components.zoneBtn:SetText("Select zone") end
+  if UIManager.components.landTypeBtn then setControlText(UIManager.components.landTypeBtn, "Select type") end
+  if UIManager.components.zoneBtn then setControlText(UIManager.components.zoneBtn, "Select zone") end
   if UIManager.components.baseTaxValue then UIManager.components.baseTaxValue:SetText("") end
   if UIManager.components.realTaxValue then UIManager.components.realTaxValue:SetText("") end
   
@@ -1317,13 +1434,17 @@ function UIManager.clearEditMode()
   
   -- Reset character selection
   if UIManager.components.characterSelect then 
-    UIManager.components.characterSelect:SetText("All Characters")
+    setControlText(UIManager.components.characterSelect, "All Characters")
   end
   currentCharacter = ""
   
   -- Reset button text to "ADD"
   if UIManager.components.addButton then
-    UIManager.components.addButton:SetText("ADD")
+    if UIManager.components.addButton.SetCleanText then
+      UIManager.components.addButton:SetCleanText("ADD")
+    else
+      UIManager.components.addButton:SetText("ADD")
+    end
   end
   
 end
@@ -1370,11 +1491,11 @@ function UIManager.setEditMode(landData, landIndex)
   if UIManager.components.landName then UIManager.components.landName:SetText(landData.name or "") end
   if UIManager.components.landTypeBtn then 
     local landType = landData.type or landData.landType or ""
-    UIManager.components.landTypeBtn:SetText(landType) 
+    setControlText(UIManager.components.landTypeBtn, landType) 
   end
   if UIManager.components.zoneBtn then 
     local zone = landData.zone or landData.zoneName or ""
-    UIManager.components.zoneBtn:SetText(zone) 
+    setControlText(UIManager.components.zoneBtn, zone) 
   end
   if UIManager.components.baseTaxValue then UIManager.components.baseTaxValue:SetText(fmt2(landData.base or landData.baseTax or 0)) end
   if UIManager.components.realTaxValue then UIManager.components.realTaxValue:SetText(fmt2(landData.tax or 0)) end
@@ -1399,7 +1520,7 @@ function UIManager.setEditMode(landData, landIndex)
   if landData.character then
     currentCharacter = landData.character
     if UIManager.components.characterSelect then
-      UIManager.components.characterSelect:SetText(landData.character)
+      setControlText(UIManager.components.characterSelect, landData.character)
     end
   end
   
@@ -1420,7 +1541,11 @@ function UIManager.setEditMode(landData, landIndex)
   
   -- Change button text to "Update"
   if UIManager.components.addButton then
-    UIManager.components.addButton:SetText("Update")
+    if UIManager.components.addButton.SetCleanText then
+      UIManager.components.addButton:SetCleanText("Update")
+    else
+      UIManager.components.addButton:SetText("Update")
+    end
   end
   
   -- Show the window

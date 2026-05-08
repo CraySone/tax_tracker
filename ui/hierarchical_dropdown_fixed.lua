@@ -36,16 +36,94 @@ local function unregisterDropdown(dropdown)
   Debug.debug("HierarchicalDropdown", "Unregistered dropdown", {totalOpen = #openDropdowns})
 end
 
+local CLEAN = {
+  WHITE = {1, 1, 1, 1},
+  MUTED = {0.72, 0.72, 0.72, 1},
+  GOLD = {1, 0.84, 0, 1},
+  BUTTON_DARK = {0.11, 0.11, 0.13, 0.92},
+  PANEL = {0.05, 0.05, 0.06, 0.94},
+  HEADER = {0.09, 0.09, 0.11, 0.95},
+  ROW_ODD = {0.08, 0.08, 0.095, 0.72},
+  ROW_EVEN = {0.12, 0.12, 0.135, 0.72}
+}
+
+local function setCleanTextColor(widget, color)
+  if widget and widget.style and widget.style.SetColor and color then
+    widget.style:SetColor(color[1], color[2], color[3], color[4] or 1)
+  end
+end
+
+local function setCleanDrawableColor(drawable, color)
+  if drawable and drawable.SetColor and color then
+    drawable:SetColor(color[1], color[2], color[3], color[4] or 0.92)
+  end
+end
+
+local function styleCleanButton(button, text, tone, align)
+  if not button then return end
+  local width, height = 80, 22
+  pcall(function()
+    if button.GetWidth and button:GetWidth() and button:GetWidth() > 0 then width = button:GetWidth() end
+    if button.GetHeight and button:GetHeight() and button:GetHeight() > 0 then height = button:GetHeight() end
+  end)
+
+  if button.SetText then button:SetText("") end
+  if not button.cleanBg and button.CreateColorDrawable then
+    local bg = button:CreateColorDrawable(CLEAN.BUTTON_DARK[1], CLEAN.BUTTON_DARK[2], CLEAN.BUTTON_DARK[3], CLEAN.BUTTON_DARK[4], "background")
+    bg:AddAnchor("TOPLEFT", button, 0, 0)
+    bg:AddAnchor("BOTTOMRIGHT", button, 0, 0)
+    bg:Show(true)
+    button.cleanBg = bg
+  end
+
+  if not button.cleanLabel then
+    local buttonId = "dropdownBtn"
+    pcall(function()
+      if button.GetId then buttonId = tostring(button:GetId() or buttonId) end
+    end)
+    local label = button:CreateChildWidget("label", buttonId .. ".cleanLabel", 0, true)
+    label:AddAnchor("TOPLEFT", button, 8, 1)
+    label:SetExtent(math.max(1, width - 16), math.max(1, height - 2))
+    if label.style then
+      label.style:SetFontSize(11)
+      if label.style.SetAlign then label.style:SetAlign(align or ALIGN.LEFT) end
+    end
+    if label.EnablePick then label:EnablePick(false) end
+    label:Show(true)
+    button.cleanLabel = label
+  end
+
+  button.cleanText = text or ""
+  button.cleanLabel:SetText(button.cleanText)
+  pcall(function() button.cleanLabel:SetExtent(math.max(1, width - 16), math.max(1, height - 2)) end)
+  setCleanTextColor(button.cleanLabel, CLEAN.WHITE)
+  setCleanDrawableColor(button.cleanBg, tone or CLEAN.BUTTON_DARK)
+end
+
+local function setDropdownText(button, text)
+  if button and button.cleanLabel then
+    button.cleanText = text or ""
+    button.cleanLabel:SetText(button.cleanText)
+  elseif button and button.SetText then
+    button:SetText(text or "")
+  end
+end
+
 -- Create hierarchical dropdown with direct button click handling (no scroll list)
-function HierarchicalDropdown.create(parent, id, width, hierarchicalData, defaultText, onChanged, maxHeight)
+function HierarchicalDropdown.create(parent, id, width, hierarchicalData, defaultText, onChanged, maxHeight, styleOptions)
   Debug.info("HierarchicalDropdown", "Creating fixed hierarchical dropdown", {id = id, dataCount = #hierarchicalData})
+  local cleanStyle = type(styleOptions) == "table" and styleOptions.cleanStyle
   
   -- Create main button
   local btn = parent:CreateChildWidget("button", id, 0, true)
-  api.Interface:ApplyButtonSkin(btn, BUTTON_BASIC.DEFAULT)
+  if not cleanStyle then api.Interface:ApplyButtonSkin(btn, BUTTON_BASIC.DEFAULT) end
   btn:SetExtent(width, 28)
   local initial = defaultText or "Select option"
-  btn:SetText(initial)
+  if cleanStyle then
+    styleCleanButton(btn, initial, CLEAN.BUTTON_DARK, ALIGN.LEFT)
+  else
+    btn:SetText(initial)
+  end
   if btn.style and btn.style.SetAlign then btn.style:SetAlign(ALIGN.LEFT) end
   
   -- Store original data and current visible data
@@ -67,10 +145,17 @@ function HierarchicalDropdown.create(parent, id, width, hierarchicalData, defaul
   menu:Show(false)
   
   -- Add background
-  local bg = menu:CreateChildWidget("emptywidget", id .. "_bg", 0, true)
-  bg:AddAnchor("TOPLEFT", menu, 0, 0)
-  bg:AddAnchor("BOTTOMRIGHT", menu, 0, 0)
-  if bg.SetColor then bg:SetColor(0.1, 0.1, 0.1, 0.9) end
+  if cleanStyle and menu.CreateColorDrawable then
+    local bg = menu:CreateColorDrawable(CLEAN.PANEL[1], CLEAN.PANEL[2], CLEAN.PANEL[3], CLEAN.PANEL[4], "background")
+    bg:AddAnchor("TOPLEFT", menu, 0, 0)
+    bg:AddAnchor("BOTTOMRIGHT", menu, 0, 0)
+    bg:Show(true)
+  else
+    local bg = menu:CreateChildWidget("emptywidget", id .. "_bg", 0, true)
+    bg:AddAnchor("TOPLEFT", menu, 0, 0)
+    bg:AddAnchor("BOTTOMRIGHT", menu, 0, 0)
+    if bg.SetColor then bg:SetColor(0.1, 0.1, 0.1, 0.9) end
+  end
   
   -- Create overlay for click-away detection
   local overlay = api.Interface:CreateEmptyWindow(id .. "_overlay")
@@ -154,7 +239,7 @@ function HierarchicalDropdown.create(parent, id, width, hierarchicalData, defaul
     
     for i, item in ipairs(visibleData) do
       local itemBtn = menu:CreateChildWidget("button", id .. "_item_" .. i, 0, true)
-      api.Interface:ApplyButtonSkin(itemBtn, BUTTON_BASIC.DEFAULT)
+      if not cleanStyle then api.Interface:ApplyButtonSkin(itemBtn, BUTTON_BASIC.DEFAULT) end
       itemBtn:SetExtent(width, itemHeight - 2)
       itemBtn:AddAnchor("TOPLEFT", menu, 10, yOffset)
       
@@ -192,7 +277,6 @@ function HierarchicalDropdown.create(parent, id, width, hierarchicalData, defaul
       end
       
       displayName = indent .. expansionIndicator .. displayName
-      itemBtn:SetText(displayName)
       
       -- Color coding based on priority for zone headers, tier for children
       local color = {1, 1, 1, 1} -- Default white
@@ -217,7 +301,15 @@ function HierarchicalDropdown.create(parent, id, width, hierarchicalData, defaul
         color = tierColors[item.tier] or tierColors[3]
       end
       
-      if itemBtn.style then
+      if cleanStyle then
+        local tone = item.tier == 0 and CLEAN.HEADER or (i % 2 == 0 and CLEAN.ROW_EVEN or CLEAN.ROW_ODD)
+        styleCleanButton(itemBtn, displayName, tone, ALIGN.LEFT)
+        setCleanTextColor(itemBtn.cleanLabel, item.tier == 0 and CLEAN.GOLD or CLEAN.WHITE)
+      else
+        itemBtn:SetText(displayName)
+      end
+
+      if itemBtn.style and not cleanStyle then
         itemBtn.style:SetAlign(ALIGN.LEFT)
         itemBtn:SetTextColor(color[1], color[2], color[3], color[4])
       end
@@ -274,7 +366,7 @@ function HierarchicalDropdown.create(parent, id, width, hierarchicalData, defaul
           createMenuItems()
         else
           -- This is a leaf item - select it and close
-          btn:SetText(item.name or "Unknown")
+          setDropdownText(btn, item.name or "Unknown")
           if onChanged then 
             onChanged(item.value or item.name, item.name, item.landData)
           end
@@ -288,7 +380,9 @@ function HierarchicalDropdown.create(parent, id, width, hierarchicalData, defaul
       
       -- Hover effects
       function itemBtn:OnEnter()
-        if itemBtn.style then
+        if cleanStyle and itemBtn.cleanLabel then
+          setCleanTextColor(itemBtn.cleanLabel, {1, 1, 0.8, 1})
+        elseif itemBtn.style then
           itemBtn:SetTextColor(1, 1, 0.8, 1) -- Bright yellow on hover
         end
       end
@@ -318,7 +412,9 @@ function HierarchicalDropdown.create(parent, id, width, hierarchicalData, defaul
           restoreColor = tierColors[item.tier] or tierColors[3]
         end
         
-        if itemBtn.style then
+        if cleanStyle and itemBtn.cleanLabel then
+          setCleanTextColor(itemBtn.cleanLabel, item.tier == 0 and CLEAN.GOLD or CLEAN.WHITE)
+        elseif itemBtn.style then
           itemBtn:SetTextColor(restoreColor[1], restoreColor[2], restoreColor[3], restoreColor[4])
         end
       end
@@ -358,8 +454,12 @@ function HierarchicalDropdown.create(parent, id, width, hierarchicalData, defaul
   btn:SetHandler("OnClick", btn.OnClick)
   
   -- Utility functions
+  function btn:SetCleanText(text)
+    setDropdownText(btn, text)
+  end
+
   function btn:GetPureText()
-    local text = btn:GetText() or ""
+    local text = btn.cleanText or btn:GetText() or ""
     return text:gsub("%s*▾%s*$", "")
   end
   

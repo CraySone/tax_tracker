@@ -472,12 +472,19 @@ end
 -- Cleanup
 function ReminderWindow.cleanup()
   if reminderWin then
-    reminderWin:Destroy()
+    -- Some widget types in this engine don't expose Destroy. Check the method
+    -- exists before calling, and pcall the whole sequence so a missing method
+    -- on one step doesn't skip the rest.
+    pcall(function()
+      if reminderWin.Show then reminderWin:Show(false) end
+      if reminderWin.RemoveAllAnchors then reminderWin:RemoveAllAnchors() end
+      if reminderWin.Destroy then reminderWin:Destroy() end
+    end)
     reminderWin = nil
   end
   if gameExitFrame then
     if gameExitFrame.taxTrackerReminderLabel then
-      gameExitFrame.taxTrackerReminderLabel:Show(false)
+      pcall(function() gameExitFrame.taxTrackerReminderLabel:Show(false) end)
       gameExitFrame.taxTrackerReminderLabel = nil
     end
     gameExitFrame = nil

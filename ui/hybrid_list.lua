@@ -11,6 +11,57 @@ local LAND_HEADER_HEIGHT = 28
 local LAND_SCROLL_MARGIN = 10
 local LAND_PAGER_HEIGHT = 34
 
+local UI = {
+  white = {1, 1, 1, 1},
+  gold = {1, 0.84, 0, 1},
+  button = {0.11, 0.11, 0.13, 0.92},
+  panel = {0.05, 0.05, 0.06, 0.64},
+  header = {0.09, 0.09, 0.11, 0.95},
+  groupDetails = {0.07, 0.07, 0.08, 0.74}
+}
+
+local function setTextColor(widget, color)
+  if widget and widget.style and widget.style.SetColor and color then
+    widget.style:SetColor(color[1], color[2], color[3], color[4] or 1)
+  end
+end
+
+local function addFill(parent, color)
+  if not (parent and parent.CreateColorDrawable) then return nil end
+  local c = color or UI.panel
+  local bg = parent:CreateColorDrawable(c[1], c[2], c[3], c[4], "background")
+  bg:AddAnchor("TOPLEFT", parent, 0, 0)
+  bg:AddAnchor("BOTTOMRIGHT", parent, 0, 0)
+  bg:Show(true)
+  return bg
+end
+
+local function styleFlatButton(button, text, tone, align)
+  if not button then return nil end
+  local width, height = 100, 24
+  pcall(function()
+    if button.GetWidth and button:GetWidth() and button:GetWidth() > 0 then width = button:GetWidth() end
+    if button.GetHeight and button:GetHeight() and button:GetHeight() > 0 then height = button:GetHeight() end
+  end)
+  if button.SetText then button:SetText("") end
+  if not button.cleanBg then button.cleanBg = addFill(button, tone or UI.button) end
+  if not button.cleanLabel then
+    local label = button:CreateChildWidget("label", "cleanLabel", 0, true)
+    label:SetExtent(math.max(1, width - 16), math.max(1, height - 2))
+    label:AddAnchor("TOPLEFT", button, 8, 1)
+    if label.style then
+      if label.style.SetFontSize then label.style:SetFontSize(11) end
+      if label.style.SetAlign then label.style:SetAlign(align or ALIGN.LEFT) end
+    end
+    if label.EnablePick then label:EnablePick(false) end
+    label:Show(true)
+    button.cleanLabel = label
+  end
+  button.cleanLabel:SetText(text or "")
+  setTextColor(button.cleanLabel, UI.white)
+  return button
+end
+
 -- Create hybrid list: categories that expand to show traditional ScrollListCtrl tables
 function HybridList.create(parent, id, width, hierarchicalData, onLandSelected, maxHeight)
   Debug.info("HybridList", "Creating hybrid list with embedded tables", {id = id, dataCount = #hierarchicalData})
@@ -26,7 +77,7 @@ function HybridList.create(parent, id, width, hierarchicalData, onLandSelected, 
   local bg = container:CreateChildWidget("emptywidget", id .. "_bg", 0, true)
   bg:AddAnchor("TOPLEFT", container, 0, 0)
   bg:AddAnchor("BOTTOMRIGHT", container, 0, 0)
-  if bg.SetColor then bg:SetColor(0.05, 0.05, 0.05, 0.9) end
+  addFill(bg, UI.panel)
   
   -- Store original data and current visible data
   local originalData = hierarchicalData
@@ -136,6 +187,7 @@ function HybridList.create(parent, id, width, hierarchicalData, onLandSelected, 
     local endIndex = math.min(startIndex + ZONE_PAGE_SIZE - 1, #sorted)
     local pageRows = {}
     for i = startIndex, endIndex do
+      if sorted[i] then sorted[i]._uiRowIndex = i end
       table.insert(pageRows, sorted[i])
     end
     return pageRows, page, totalPages, #sorted
@@ -256,12 +308,11 @@ function HybridList.create(parent, id, width, hierarchicalData, onLandSelected, 
     -- STEP 1: Create all collapsed categories at the top
     for i, item in ipairs(collapsedCategories) do
       local itemBtn = scrollContainer:CreateChildWidget("button", uid("zone_collapsed_" .. i), 0, true)
-      api.Interface:ApplyButtonSkin(itemBtn, BUTTON_BASIC.DEFAULT)
       itemBtn:SetExtent(width - 20, itemHeight)
       itemBtn:AddAnchor("TOPLEFT", scrollContainer, 5, yOffset)
       
       local displayName = "[+] " .. (item.name or "Unknown Zone")
-      itemBtn:SetText(displayName)
+      styleFlatButton(itemBtn, displayName, UI.header, ALIGN.LEFT)
       
       -- PERFORMANCE FIX: Store direct reference to zone header button
       zoneHeaders[item.zoneName] = itemBtn
@@ -280,8 +331,8 @@ function HybridList.create(parent, id, width, hierarchicalData, onLandSelected, 
       
       if itemBtn.style then
         itemBtn.style:SetAlign(ALIGN.LEFT)
-        itemBtn:SetTextColor(color[1], color[2], color[3], color[4])
       end
+      setTextColor(itemBtn.cleanLabel, color)
       
       -- Click handler: expand this category (moves it to bottom)
       function itemBtn:OnClick()
@@ -291,12 +342,12 @@ function HybridList.create(parent, id, width, hierarchicalData, onLandSelected, 
       
       -- Hover effects
       function itemBtn:OnEnter()
-        if itemBtn.style then itemBtn:SetTextColor(1, 1, 0.9, 1) end
+        setTextColor(itemBtn.cleanLabel, {1, 1, 0.9, 1})
       end
       itemBtn:SetHandler("OnEnter", itemBtn.OnEnter)
       
       function itemBtn:OnLeave()
-        if itemBtn.style then itemBtn:SetTextColor(color[1], color[2], color[3], color[4]) end
+        setTextColor(itemBtn.cleanLabel, color)
       end
       itemBtn:SetHandler("OnLeave", itemBtn.OnLeave)
       
@@ -322,12 +373,11 @@ function HybridList.create(parent, id, width, hierarchicalData, onLandSelected, 
     -- STEP 3: Create expanded category at the bottom with its table
     if expandedCategory then
       local itemBtn = scrollContainer:CreateChildWidget("button", uid("zone_expanded"), 0, true)
-      api.Interface:ApplyButtonSkin(itemBtn, BUTTON_BASIC.DEFAULT)
       itemBtn:SetExtent(width - 20, itemHeight)
       itemBtn:AddAnchor("TOPLEFT", scrollContainer, 5, yOffset)
       
       local displayName = "[-] " .. (expandedCategory.name or "Unknown Zone")
-      itemBtn:SetText(displayName)
+      styleFlatButton(itemBtn, displayName, UI.groupDetails, ALIGN.LEFT)
       
       -- PERFORMANCE FIX: Store direct reference to expanded zone header button
       zoneHeaders[expandedCategory.zoneName] = itemBtn
@@ -346,8 +396,8 @@ function HybridList.create(parent, id, width, hierarchicalData, onLandSelected, 
       
       if itemBtn.style then
         itemBtn.style:SetAlign(ALIGN.LEFT)
-        itemBtn:SetTextColor(color[1], color[2], color[3], color[4])
       end
+      setTextColor(itemBtn.cleanLabel, color)
       
       -- Click handler: collapse this category (moves it back to top)
       function itemBtn:OnClick()
@@ -357,12 +407,12 @@ function HybridList.create(parent, id, width, hierarchicalData, onLandSelected, 
       
       -- Hover effects
       function itemBtn:OnEnter()
-        if itemBtn.style then itemBtn:SetTextColor(1, 1, 0.9, 1) end
+        setTextColor(itemBtn.cleanLabel, {1, 1, 0.9, 1})
       end
       itemBtn:SetHandler("OnEnter", itemBtn.OnEnter)
       
       function itemBtn:OnLeave()
-        if itemBtn.style then itemBtn:SetTextColor(color[1], color[2], color[3], color[4]) end
+        setTextColor(itemBtn.cleanLabel, color)
       end
       itemBtn:SetHandler("OnLeave", itemBtn.OnLeave)
       
@@ -374,7 +424,7 @@ function HybridList.create(parent, id, width, hierarchicalData, onLandSelected, 
         local zoneLands = zoneGroups[expandedCategory.zoneName].lands
 
         if #zoneLands > 0 then
-          local compactWidth = width - 70 -- Account for anchors and scrollbar
+          local compactWidth = width - 50 -- Account for anchors and scrollbar
 
           local pageRows, currentZonePage, totalZonePages, totalZoneRows = pagedZoneLands(expandedCategory.zoneName, zoneLands)
           local visibleRows = math.min(math.max(#pageRows, 1), ZONE_PAGE_SIZE)
@@ -390,7 +440,7 @@ function HybridList.create(parent, id, width, hierarchicalData, onLandSelected, 
           local tableBg = tableContainer:CreateChildWidget("emptywidget", uid("table_bg"), 0, true)
           tableBg:AddAnchor("TOPLEFT", tableContainer, 0, 0)
           tableBg:AddAnchor("BOTTOMRIGHT", tableContainer, 0, 0)
-          if tableBg.SetColor then tableBg:SetColor(0.1, 0.1, 0.1, 0.8) end
+          addFill(tableBg, UI.groupDetails)
 
           local function onCountdownLabelCreated(landId, countdownLabel)
             if landId and countdownLabel then
@@ -443,10 +493,9 @@ function HybridList.create(parent, id, width, hierarchicalData, onLandSelected, 
 
             if totalZonePages > 1 then
               local prevBtn = tableContainer:CreateChildWidget("button", uid("page_prev"), 0, true)
-              api.Interface:ApplyButtonSkin(prevBtn, BUTTON_BASIC.DEFAULT)
               prevBtn:SetExtent(70, 26)
               prevBtn:AddAnchor("TOPLEFT", tableContainer, 8, tableHeight + 6)
-              prevBtn:SetText("Prev")
+              styleFlatButton(prevBtn, "Prev", UI.button, ALIGN.CENTER)
               if prevBtn.Enable then prevBtn:Enable(currentZonePage > 1) end
               function prevBtn:OnClick()
                 zonePages[expandedCategory.zoneName] = math.max(1, (zonePages[expandedCategory.zoneName] or 1) - 1)
@@ -467,10 +516,9 @@ function HybridList.create(parent, id, width, hierarchicalData, onLandSelected, 
               table.insert(menuItems, pageLbl)
 
               local nextBtn = tableContainer:CreateChildWidget("button", uid("page_next"), 0, true)
-              api.Interface:ApplyButtonSkin(nextBtn, BUTTON_BASIC.DEFAULT)
               nextBtn:SetExtent(70, 26)
               nextBtn:AddAnchor("TOPRIGHT", tableContainer, -8, tableHeight + 6)
-              nextBtn:SetText("Next")
+              styleFlatButton(nextBtn, "Next", UI.button, ALIGN.CENTER)
               if nextBtn.Enable then nextBtn:Enable(currentZonePage < totalZonePages) end
               function nextBtn:OnClick()
                 zonePages[expandedCategory.zoneName] = math.min(totalZonePages, (zonePages[expandedCategory.zoneName] or 1) + 1)
@@ -633,11 +681,17 @@ function HybridList.create(parent, id, width, hierarchicalData, onLandSelected, 
     
     -- Update text if provided
     if statusData.text then
-      header:SetText(statusData.text)
+      if header.cleanLabel then
+        header.cleanLabel:SetText(statusData.text)
+      else
+        header:SetText(statusData.text)
+      end
     end
     
     -- Update color if provided
-    if statusData.color and header.SetTextColor then
+    if statusData.color and header.cleanLabel then
+      setTextColor(header.cleanLabel, statusData.color)
+    elseif statusData.color and header.SetTextColor then
       local c = statusData.color
       header:SetTextColor(c[1], c[2], c[3], c[4] or 1)
     end

@@ -10,19 +10,19 @@ local trackedLands = {}
 local SETTINGS_KEY      = "farmTrackerSettings"
 local ALL_FARMS_KEY     = "farmTrackerData"
 
-local MAIN_W, MAIN_H     = 760, 470
-local DETAIL_W, DETAIL_H = 760, 430
+local MAIN_W, MAIN_H     = 820, 470
+local DETAIL_W, DETAIL_H = 760, 500
 
 -- Detail window layout
-local DETAIL_LIST_Y        = 66   -- top of doodad list content
+local DETAIL_LIST_Y        = 106  -- top of doodad list content
 local DETAIL_ROWS_PER_PAGE = 10
 local DETAIL_NAME_X        = 37
 local DETAIL_NAME_W        = 390
 local DETAIL_QTY_X         = 442
 local DETAIL_QTY_W         = 36
 local DETAIL_EARLIEST_X    = 486
-local DETAIL_TIME_W        = 100
-local DETAIL_LATEST_X      = 596
+local DETAIL_TIME_W        = 82
+local DETAIL_LATEST_X      = 584
 
 -- ============================================================
 -- STATE
@@ -43,7 +43,7 @@ local mainListRows      = {}
 local mainListTimeLbls  = {}
 local mainListRebuildId = 0
 local currentPage       = 1
-local ROWS_PER_PAGE     = 7
+local ROWS_PER_PAGE     = 9
 local filterText        = ""
 local filterDebounce    = false
 
@@ -141,6 +141,143 @@ local function addWindowTint(win, alpha)
     bg:AddAnchor("TOPLEFT", win, 0, 0)
     bg:AddAnchor("BOTTOMRIGHT", win, 0, 0)
     bg:Show(true)
+end
+
+FARM_UI = {
+    white = {1, 1, 1, 1},
+    muted = {0.72, 0.72, 0.72, 1},
+    gold = {1, 0.84, 0, 1},
+    green = {0.12, 0.28, 0.15, 0.95},
+    red = {0.24, 0.09, 0.09, 0.95},
+    button = {0.11, 0.11, 0.13, 0.92},
+    buttonBlue = {0.14, 0.17, 0.22, 0.95},
+    panel = {0.05, 0.05, 0.06, 0.64},
+    listPanel = {0.05, 0.05, 0.06, 0.36},
+    header = {0.09, 0.09, 0.11, 0.95},
+    groupDetails = {0.07, 0.07, 0.08, 0.74},
+    groupTools = {0.055, 0.06, 0.07, 0.74},
+    groupActions = {0.065, 0.065, 0.075, 0.74},
+    rowOdd = {0.08, 0.08, 0.095, 0.72},
+    rowEven = {0.12, 0.12, 0.135, 0.72}
+}
+
+function ftClearAnchors(widget)
+    if widget and widget.RemoveAllAnchors then
+        pcall(function() widget:RemoveAllAnchors() end)
+    end
+end
+
+function ftSetTextColor(widget, color)
+    if widget and widget.style and widget.style.SetColor and color then
+        widget.style:SetColor(color[1], color[2], color[3], color[4] or 1)
+    elseif ApplyTextColor and FONT_COLOR then
+        ApplyTextColor(widget, FONT_COLOR.DEFAULT)
+    end
+end
+
+function ftSetDrawableColor(drawable, color)
+    if drawable and drawable.SetColor and color then
+        drawable:SetColor(color[1], color[2], color[3], color[4] or 0.92)
+    end
+end
+
+function ftAddPanel(parent, id, x, y, w, h, color)
+    if not (parent and parent.CreateChildWidget) then return nil end
+    local c = color or FARM_UI.panel
+    local box = parent:CreateChildWidget("emptywidget", id, 0, true)
+    box:SetExtent(w, h)
+    box:AddAnchor("TOPLEFT", parent, x, y)
+    if box.EnableMouse then box:EnableMouse(false) end
+    local bg = box:CreateColorDrawable(c[1], c[2], c[3], c[4], "background")
+    bg:AddAnchor("TOPLEFT", box, 0, 0)
+    bg:AddAnchor("BOTTOMRIGHT", box, 0, 0)
+    bg:Show(true)
+    box:Show(true)
+    return box
+end
+
+function ftAddDrawable(parent, color)
+    if not (parent and parent.CreateColorDrawable) then return nil end
+    local c = color or FARM_UI.panel
+    local bg = parent:CreateColorDrawable(c[1], c[2], c[3], c[4], "background")
+    bg:AddAnchor("TOPLEFT", parent, 0, 0)
+    bg:AddAnchor("BOTTOMRIGHT", parent, 0, 0)
+    bg:Show(true)
+    return bg
+end
+
+function ftPlace(widget, anchorPoint, relativeTo, relativePoint, x, y, w, h)
+    if not widget then return nil end
+    ftClearAnchors(widget)
+    if w and h then widget:SetExtent(w, h) end
+    if relativePoint then
+        widget:AddAnchor(anchorPoint, relativeTo, relativePoint, x, y)
+    else
+        widget:AddAnchor(anchorPoint, relativeTo, x, y)
+    end
+    return widget
+end
+
+function ftStyleLabel(label, color, size, align)
+    if not label then return nil end
+    if label.style then
+        if label.style.SetFontSize then label.style:SetFontSize(size or 12) end
+        if label.style.SetAlign then label.style:SetAlign(align or ALIGN.LEFT) end
+    end
+    ftSetTextColor(label, color or FARM_UI.white)
+    return label
+end
+
+function ftStyleButton(button, text, tone, fontSize)
+    if not button then return nil end
+    local w, h = 80, 24
+    pcall(function()
+        if button.GetWidth and button:GetWidth() and button:GetWidth() > 0 then w = button:GetWidth() end
+        if button.GetHeight and button:GetHeight() and button:GetHeight() > 0 then h = button:GetHeight() end
+    end)
+    if button.SetText then button:SetText("") end
+    if not button.cleanBg and button.CreateColorDrawable then
+        button.cleanBg = button:CreateColorDrawable(0.11, 0.11, 0.13, 0.92, "background")
+        button.cleanBg:Show(true)
+    end
+    ftClearAnchors(button.cleanBg)
+    if button.cleanBg then
+        button.cleanBg:AddAnchor("TOPLEFT", button, 0, 0)
+        button.cleanBg:AddAnchor("BOTTOMRIGHT", button, 0, 0)
+    end
+    if not button.cleanLabel then
+        local label = button:CreateChildWidget("label", "cleanLabel", 0, true)
+        if label.EnablePick then label:EnablePick(false) end
+        label:Show(true)
+        button.cleanLabel = label
+    end
+    ftClearAnchors(button.cleanLabel)
+    button.cleanLabel:SetExtent(w, math.max(1, h - 2))
+    button.cleanLabel:AddAnchor("TOPLEFT", button, 0, 1)
+    ftStyleLabel(button.cleanLabel, FARM_UI.white, fontSize or 11, ALIGN.CENTER)
+
+    function button:SetCleanText(nextText)
+        if self.cleanLabel then self.cleanLabel:SetText(nextText or "") end
+    end
+    function button:SetText(nextText)
+        self:SetCleanText(nextText)
+    end
+    function button:SetTone(nextTone)
+        ftSetDrawableColor(self.cleanBg, nextTone or FARM_UI.button)
+    end
+
+    button:SetCleanText(text or "")
+    button:SetTone(tone or FARM_UI.button)
+    return button
+end
+
+function ftDestroyWidget(widget)
+    if not widget then return end
+    pcall(function()
+        if widget.Show then widget:Show(false) end
+        ftClearAnchors(widget)
+        if widget.Destroy then widget:Destroy() end
+    end)
 end
 
 local function newId()
@@ -1172,13 +1309,8 @@ rebuildAutotrackerWindow = function()
             table.insert(autotrackerTimeLbls, { lbl=latestLbl, entries=group.entries, kind="latest" })
 
             local delBtn = row:CreateChildWidget("button", "tt_auto_del_group_" .. rowIndex, 0, true)
-            if api.Interface.ApplyButtonSkin and BUTTON_CONTENTS then
-                api.Interface:ApplyButtonSkin(delBtn, BUTTON_CONTENTS.SKILL_ABILITY_DELETE)
-            elseif ApplyButtonSkin and BUTTON_BASIC then
-                ApplyButtonSkin(delBtn, BUTTON_BASIC.DEFAULT)
-            end
-            delBtn:SetExtent(24, 24)
-            delBtn:AddAnchor("RIGHT", row, -2, 0)
+            ftPlace(delBtn, "RIGHT", row, nil, -4, 0, 38, 20)
+            ftStyleButton(delBtn, "Del", FARM_UI.red, 10)
             local capturedFarm = group.farm
             local capturedGroup = group
             function delBtn:OnClick()
@@ -1215,13 +1347,8 @@ rebuildAutotrackerWindow = function()
             table.insert(autotrackerTimeLbls, { lbl=timeLbl, entry=entry })
 
             local delBtn = row:CreateChildWidget("button", "tt_auto_del_entry_" .. rowIndex, 0, true)
-            if api.Interface.ApplyButtonSkin and BUTTON_CONTENTS then
-                api.Interface:ApplyButtonSkin(delBtn, BUTTON_CONTENTS.SKILL_ABILITY_DELETE)
-            elseif ApplyButtonSkin and BUTTON_BASIC then
-                ApplyButtonSkin(delBtn, BUTTON_BASIC.DEFAULT)
-            end
-            delBtn:SetExtent(22, 22)
-            delBtn:AddAnchor("RIGHT", row, -4, 0)
+            ftPlace(delBtn, "RIGHT", row, nil, -4, 0, 38, 20)
+            ftStyleButton(delBtn, "Del", FARM_UI.red, 10)
             local capturedFarm = item.group.farm
             local capturedEntry = entry
             function delBtn:OnClick()
@@ -1361,11 +1488,25 @@ end
 
 local function updateAutotrackerButton()
     if autotrackerBtn then autotrackerBtn:SetText(settings.autotrackerEnabled and "Autotracker: ON" or "Autotracker: OFF") end
-    if floatingAutoBtn then floatingAutoBtn:SetText(settings.autotrackerEnabled and "Auto: ON" or "Auto: OFF") end
+    if floatingAutoBtn then
+        if floatingAutoBtn.SetCleanText then
+            floatingAutoBtn:SetCleanText(settings.autotrackerEnabled and "AUTO ON" or "AUTO OFF")
+        elseif floatingAutoBtn.SetText then
+            floatingAutoBtn:SetText(settings.autotrackerEnabled and "Auto: ON" or "Auto: OFF")
+        end
+        if floatingAutoBtn.SetTone then
+            floatingAutoBtn:SetTone(settings.autotrackerEnabled and {0.12, 0.28, 0.15, 0.95} or {0.11, 0.11, 0.13, 0.92})
+        end
+    end
     local text = settings.autotrackerEnabled and "Autotracker: ON" or "Autotracker: OFF"
     for i = #externalAutotrackerButtons, 1, -1 do
         local btn = externalAutotrackerButtons[i]
-        local ok = btn and btn.SetText and pcall(function() btn:SetText(text) end)
+        local ok = btn and btn.SetText and pcall(function()
+            btn:SetText(text)
+            if btn.SetTone then
+                btn:SetTone(settings.autotrackerEnabled and {0.12, 0.28, 0.15, 0.95} or {0.11, 0.11, 0.13, 0.92})
+            end
+        end)
         if not ok then table.remove(externalAutotrackerButtons, i) end
     end
 end
@@ -1393,7 +1534,7 @@ rebuildDoodadList = function()
     local rid = detailRebuildId
     detailTimeLbls = {}
 
-    if detailWin._listContent then detailWin._listContent:Show(false) end
+    ftDestroyWidget(detailWin._listContent)
 
     -- Update Clear button label
     if detailWin._btnReset then
@@ -1420,9 +1561,9 @@ rebuildDoodadList = function()
     local rowCount = math.max(1, endIdx - startIdx + 1)
 
     local listContent = detailWin:CreateChildWidget("emptywidget", "ft_dl_content_"..rid, 0, true)
-    listContent:SetExtent(DETAIL_W - 16, rowCount * 28)
+    listContent:SetExtent(DETAIL_W - 36, rowCount * 28)
     listContent:RemoveAllAnchors()
-    listContent:AddAnchor("TOPLEFT", detailWin, 8, DETAIL_LIST_Y)
+    listContent:AddAnchor("TOPLEFT", detailWin, 18, DETAIL_LIST_Y)
     listContent:Show(true)
     detailWin._listContent = listContent
 
@@ -1430,15 +1571,16 @@ rebuildDoodadList = function()
         local emptyLbl1 = listContent:CreateChildWidget("label", "ft_dl_empty1_"..rid, 0, true)
         emptyLbl1:SetText("No entities scanned yet.")
         emptyLbl1:AddAnchor("TOPLEFT", listContent, 4, 8)
-        emptyLbl1:SetAutoResize(true)
-        if ApplyTextColor and FONT_COLOR then ApplyTextColor(emptyLbl1, FONT_COLOR.DEFAULT) end
+        emptyLbl1:SetExtent(300, 22)
+        emptyLbl1:SetAutoResize(false)
+        ftStyleLabel(emptyLbl1, FARM_UI.white, 12, ALIGN.LEFT)
         emptyLbl1:Show(true)
         local emptyLbl2 = listContent:CreateChildWidget("label", "ft_dl_empty2_"..rid, 0, true)
         emptyLbl2:SetText("Entities will be scanned on mouseover when holding the modifier key selected in the settings page for this addon.")
         emptyLbl2:AddAnchor("TOPLEFT", listContent, 4, 28)
-        emptyLbl2:SetAutoResize(true)
-        if emptyLbl2.style then emptyLbl2.style:SetFontSize(FONT_SIZE.SMALL or 14) end
-        if ApplyTextColor and FONT_COLOR then ApplyTextColor(emptyLbl2, FONT_COLOR.DEFAULT) end
+        emptyLbl2:SetExtent(680, 22)
+        emptyLbl2:SetAutoResize(false)
+        ftStyleLabel(emptyLbl2, FARM_UI.muted, 12, ALIGN.LEFT)
         emptyLbl2:Show(true)
         return
     end
@@ -1449,10 +1591,10 @@ rebuildDoodadList = function()
 
         if item.type == "header" then
             local hdr = listContent:CreateChildWidget("emptywidget", "ft_dl_hdr_"..rid.."_"..i, 0, true)
-            hdr:SetExtent(DETAIL_W - 16, 27)
+            hdr:SetExtent(DETAIL_W - 36, 27)
             hdr:RemoveAllAnchors()
             hdr:AddAnchor("TOPLEFT", listContent, 0, yOff)
-            local hdrShade = hdr:CreateColorDrawable(0.08, 0.10, 0.13, 0.62, "background")
+            local hdrShade = hdr:CreateColorDrawable(FARM_UI.header[1], FARM_UI.header[2], FARM_UI.header[3], FARM_UI.header[4], "background")
             hdrShade:AddAnchor("TOPLEFT", hdr, 0, 0)
             hdrShade:AddAnchor("BOTTOMRIGHT", hdr, 0, 0)
             hdrShade:Show(true)
@@ -1497,8 +1639,7 @@ rebuildDoodadList = function()
             nameLbl:AddAnchor("LEFT", hdr, 26, 0)
             nameLbl:SetText(fitText(item.name or "", 46))
             nameLbl:SetAutoResize(false)
-            if nameLbl.style then nameLbl.style:SetAlign(ALIGN.LEFT); nameLbl.style:SetFontSize(FONT_SIZE.MIDDLE or 16) end
-            if ApplyTextColor and FONT_COLOR then ApplyTextColor(nameLbl, FONT_COLOR.DEFAULT) end
+            ftStyleLabel(nameLbl, FARM_UI.white, 12, ALIGN.LEFT)
             nameLbl:Show(true)
 
             local qtyLbl = hdr:CreateChildWidget("label", "ft_dl_hq_"..rid.."_"..i, 0, true)
@@ -1506,8 +1647,7 @@ rebuildDoodadList = function()
             qtyLbl:AddAnchor("LEFT", hdr, DETAIL_QTY_X, 0)
             qtyLbl:SetText("x" .. item.qty)
             qtyLbl:SetAutoResize(false)
-            if qtyLbl.style then qtyLbl.style:SetAlign(ALIGN.CENTER) end
-            if ApplyTextColor and FONT_COLOR then ApplyTextColor(qtyLbl, FONT_COLOR.DEFAULT) end
+            ftStyleLabel(qtyLbl, FARM_UI.white, 12, ALIGN.CENTER)
             qtyLbl:Show(true)
 
             local eLbl = hdr:CreateChildWidget("label", "ft_dl_he_"..rid.."_"..i, 0, true)
@@ -1515,8 +1655,7 @@ rebuildDoodadList = function()
             eLbl:AddAnchor("LEFT", hdr, DETAIL_EARLIEST_X, 0)
             eLbl:SetText(formatTime(item.earliest))
             eLbl:SetAutoResize(false)
-            if eLbl.style then eLbl.style:SetAlign(ALIGN.LEFT) end
-            if ApplyTextColor and FONT_COLOR then ApplyTextColor(eLbl, FONT_COLOR.DEFAULT) end
+            ftStyleLabel(eLbl, FARM_UI.white, 12, ALIGN.LEFT)
             eLbl:Show(true)
             table.insert(detailTimeLbls, { kind="earliest", lbl=eLbl, groupName=item.name, groupOwner=item.owner })
 
@@ -1525,16 +1664,14 @@ rebuildDoodadList = function()
             lLbl:AddAnchor("LEFT", hdr, DETAIL_LATEST_X, 0)
             lLbl:SetText(formatTime(item.latest))
             lLbl:SetAutoResize(false)
-            if lLbl.style then lLbl.style:SetAlign(ALIGN.LEFT) end
-            if ApplyTextColor and FONT_COLOR then ApplyTextColor(lLbl, FONT_COLOR.DEFAULT) end
+            ftStyleLabel(lLbl, FARM_UI.white, 12, ALIGN.LEFT)
             lLbl:Show(true)
             table.insert(detailTimeLbls, { kind="latest", lbl=lLbl, groupName=item.name, groupOwner=item.owner })
 
             -- Delete button for this group
             local delBtn = hdr:CreateChildWidget("button", "ft_dl_hdel_"..rid.."_"..i, 0, true)
-            api.Interface:ApplyButtonSkin(delBtn, BUTTON_CONTENTS.SKILL_ABILITY_DELETE)
-            delBtn:SetExtent(22, 22)
-            delBtn:AddAnchor("RIGHT", hdr, -2, 0)
+            ftPlace(delBtn, "RIGHT", hdr, nil, -6, 0, 38, 22)
+            ftStyleButton(delBtn, "Del", FARM_UI.red)
             local capturedName  = item.name
             local capturedOwner = item.owner
             function delBtn:OnClick()
@@ -1560,10 +1697,12 @@ rebuildDoodadList = function()
 
         elseif item.type == "entry" then
             local row = listContent:CreateChildWidget("emptywidget", "ft_dl_ent_"..rid.."_"..i, 0, true)
-            row:SetExtent(DETAIL_W - 16, 27)
+            row:SetExtent(DETAIL_W - 36, 27)
             row:RemoveAllAnchors()
             row:AddAnchor("TOPLEFT", listContent, 0, yOff)
-            local rowShade = row:CreateColorDrawable(0.02, 0.02, 0.02, 0.35, "background")
+            local relIndex = i - startIdx + 1
+            local tone = relIndex % 2 == 0 and FARM_UI.rowEven or FARM_UI.rowOdd
+            local rowShade = row:CreateColorDrawable(tone[1], tone[2], tone[3], tone[4], "background")
             rowShade:AddAnchor("TOPLEFT", row, 0, 0)
             rowShade:AddAnchor("BOTTOMRIGHT", row, 0, 0)
             rowShade:Show(true)
@@ -1575,8 +1714,7 @@ rebuildDoodadList = function()
             ownerLbl:AddAnchor("LEFT", row, 36, 0)
             ownerLbl:SetText("  " .. fitText(item.owner ~= "" and item.owner or "No Owner", 44))
             ownerLbl:SetAutoResize(false)
-            if ownerLbl.style then ownerLbl.style:SetAlign(ALIGN.LEFT); ownerLbl.style:SetFontSize(FONT_SIZE.SMALL or 14) end
-            if ApplyTextColor and FONT_COLOR then ApplyTextColor(ownerLbl, FONT_COLOR.SOFT_BROWN or FONT_COLOR.DEFAULT) end
+            ftStyleLabel(ownerLbl, FARM_UI.muted, 12, ALIGN.LEFT)
             ownerLbl:Show(true)
 
             -- Time label in Earliest column
@@ -1585,8 +1723,7 @@ rebuildDoodadList = function()
             tLbl:AddAnchor("LEFT", row, DETAIL_EARLIEST_X, 0)
             tLbl:SetText(formatTime(item.t))
             tLbl:SetAutoResize(false)
-            if tLbl.style then tLbl.style:SetAlign(ALIGN.LEFT); tLbl.style:SetFontSize(FONT_SIZE.SMALL or 14) end
-            if ApplyTextColor and FONT_COLOR then ApplyTextColor(tLbl, FONT_COLOR.DEFAULT) end
+            ftStyleLabel(tLbl, FARM_UI.white, 12, ALIGN.LEFT)
             tLbl:Show(true)
             table.insert(detailTimeLbls, { kind="entry", lbl=tLbl, entry=item.entry })
         end
@@ -1611,7 +1748,11 @@ local function openDetailWindow(farmId)
         detailWin = api.Interface:CreateWindow("tax_tracker_farm_detail", "Farm Detail", DETAIL_W, DETAIL_H)
         detailWin:RemoveAllAnchors()
         detailWin:AddAnchor("CENTER", "UIParent", 0, 0)
-        addWindowTint(detailWin, 0.55)
+        ftAddPanel(detailWin, "ft_detail_root", 12, 42, DETAIL_W - 24, DETAIL_H - 54, FARM_UI.panel)
+        ftAddPanel(detailWin, "ft_detail_info_panel", 18, 42, DETAIL_W - 36, 28, FARM_UI.groupDetails)
+        ftAddPanel(detailWin, "ft_detail_header_panel", 18, 76, DETAIL_W - 36, 26, FARM_UI.header)
+        ftAddPanel(detailWin, "ft_detail_list_panel", 18, 106, DETAIL_W - 36, 280, FARM_UI.listPanel)
+        ftAddPanel(detailWin, "ft_detail_action_panel", 18, DETAIL_H - 78, DETAIL_W - 36, 54, FARM_UI.groupActions)
         detailWin:Show(false)
 
         function detailWin:OnHide() lastDoodadInfo = nil end
@@ -1621,48 +1762,26 @@ local function openDetailWindow(farmId)
         detailWin._zoneLbl = detailWin:CreateChildWidget("label", "ft_detail_zone", 0, true)
         detailWin._zoneLbl:SetExtent(200, 22)
         detailWin._zoneLbl:SetAutoResize(false)
-        detailWin._zoneLbl:AddAnchor("TOPLEFT", detailWin, 10, 10)
-        if detailWin._zoneLbl.style then
-            detailWin._zoneLbl.style:SetFontSize(FONT_SIZE.MIDDLE or 16)
-            detailWin._zoneLbl.style:SetAlign(ALIGN.LEFT)
-        end
-        if ApplyTextColor and FONT_COLOR then ApplyTextColor(detailWin._zoneLbl, FONT_COLOR.DEFAULT) end
+        detailWin._zoneLbl:AddAnchor("TOPLEFT", detailWin, 28, 47)
+        ftStyleLabel(detailWin._zoneLbl, FARM_UI.gold, 12, ALIGN.LEFT)
         detailWin._zoneLbl:Show(true)
 
         detailWin._sextLbl = detailWin:CreateChildWidget("label", "ft_detail_sext", 0, true)
         detailWin._sextLbl:SetExtent(220, 22)
         detailWin._sextLbl:SetAutoResize(false)
-        detailWin._sextLbl:AddAnchor("TOPRIGHT", detailWin, -20, 10)
-        if detailWin._sextLbl.style then
-            detailWin._sextLbl.style:SetFontSize(FONT_SIZE.MIDDLE or 16)
-            detailWin._sextLbl.style:SetAlign(ALIGN.RIGHT)
-        end
-        if ApplyTextColor and FONT_COLOR then ApplyTextColor(detailWin._sextLbl, FONT_COLOR.DEFAULT) end
+        detailWin._sextLbl:AddAnchor("TOPRIGHT", detailWin, -28, 47)
+        ftStyleLabel(detailWin._sextLbl, FARM_UI.muted, 12, ALIGN.RIGHT)
         detailWin._sextLbl:Show(true)
-
-        -- Separator below info
-        local sep1 = detailWin:CreateColorDrawable(0.3, 0.3, 0.5, 0.5, "background")
-        sep1:SetExtent(DETAIL_W - 20, 1)
-        sep1:RemoveAllAnchors()
-        sep1:AddAnchor("TOPLEFT", detailWin, 10, 38)
-        sep1:Show(true)
-
-        local dHdrBg = detailWin:CreateColorDrawable(0.08, 0.11, 0.16, 0.72, "background")
-        dHdrBg:SetExtent(DETAIL_W - 20, 26)
-        dHdrBg:RemoveAllAnchors()
-        dHdrBg:AddAnchor("TOPLEFT", detailWin, 10, 40)
-        dHdrBg:Show(true)
 
         -- Doodad list column headers
         local function makeDHdr(name, txt, x, w)
             local lbl = detailWin:CreateChildWidget("label", name, 0, true)
             lbl:SetExtent(w, 22)
             lbl:RemoveAllAnchors()
-            lbl:AddAnchor("TOPLEFT", detailWin, x, 42)
+            lbl:AddAnchor("TOPLEFT", detailWin, x + 8, 80)
             lbl:SetText(txt)
             lbl:SetAutoResize(false)
-            if lbl.style then lbl.style:SetAlign(ALIGN.LEFT); lbl.style:SetFontSize(FONT_SIZE.LARGE or 18) end
-            if ApplyTextColor and FONT_COLOR then ApplyTextColor(lbl, FONT_COLOR.DEFAULT) end
+            ftStyleLabel(lbl, FARM_UI.gold, 12, ALIGN.LEFT)
             lbl:Show(true)
         end
         makeDHdr("ft_dh_expand",   "",            13,                24)
@@ -1671,17 +1790,10 @@ local function openDetailWindow(farmId)
         makeDHdr("ft_dh_earliest", "Earliest",    DETAIL_EARLIEST_X, DETAIL_TIME_W)
         makeDHdr("ft_dh_latest",   "Latest",      DETAIL_LATEST_X,   DETAIL_TIME_W)
 
-        -- Separator below column headers
-        local sep3 = detailWin:CreateColorDrawable(0.3, 0.3, 0.5, 0.5, "background")
-        sep3:SetExtent(DETAIL_W - 20, 1)
-        sep3:RemoveAllAnchors()
-        sep3:AddAnchor("TOPLEFT", detailWin, 10, 66)
-        sep3:Show(true)
-
         -- Doodad list page controls (centered at bottom)
         local dPageCtrl = W_CTRL.CreatePageControl("ft_d_pagectrl", detailWin, "tutorial")
         dPageCtrl:RemoveAllAnchors()
-        dPageCtrl:AddAnchor("BOTTOM", detailWin, 0, -14)
+        dPageCtrl:AddAnchor("BOTTOM", detailWin, 0, -30)
         function dPageCtrl:ProcOnPageChanged(pageIndex)
             detailPage = pageIndex
             rebuildDoodadList()
@@ -1689,18 +1801,11 @@ local function openDetailWindow(farmId)
         dPageCtrl:Show(true)
         detailWin._dPageCtrl = dPageCtrl
 
-        -- Bottom separator
-        local sep4 = detailWin:CreateColorDrawable(0.3, 0.3, 0.5, 0.5, "background")
-        sep4:SetExtent(DETAIL_W - 20, 1)
-        sep4:RemoveAllAnchors()
-        sep4:AddAnchor("BOTTOMLEFT", detailWin, 10, -46)
-        sep4:Show(true)
-
         -- "Populate Filter List" checkbox (above Back button)
         local cbPopulate = detailWin:CreateChildWidget("checkbutton", "ft_detail_cb_populate", 0, true)
         cbPopulate:SetExtent(18, 17)
         cbPopulate:RemoveAllAnchors()
-        cbPopulate:AddAnchor("BOTTOMLEFT", detailWin, 10, -48)
+        cbPopulate:AddAnchor("BOTTOMLEFT", detailWin, 28, -60)
         local cbpBgs = {}
         local cbpCoords = {
             {0,0,18,17},{0,0,18,17},{0,0,18,17},
@@ -1733,15 +1838,14 @@ local function openDetailWindow(farmId)
         cbPopulateLbl:SetText("Lock Filter")
         cbPopulateLbl:SetAutoResize(true)
         cbPopulateLbl:AddAnchor("LEFT", cbPopulate, "RIGHT", 4, 0)
-        if cbPopulateLbl.style then cbPopulateLbl.style:SetAlign(ALIGN.LEFT); cbPopulateLbl.style:SetFontSize(FONT_SIZE.SMALL or 14) end
-        if ApplyTextColor and FONT_COLOR then ApplyTextColor(cbPopulateLbl, FONT_COLOR.DEFAULT) end
+        ftStyleLabel(cbPopulateLbl, FARM_UI.white, 12, ALIGN.LEFT)
         cbPopulateLbl:Show(true)
 
         -- "Scan only when holding [modifier]" checkbox
         local cbModOnly = detailWin:CreateChildWidget("checkbutton", "ft_detail_cb_modonly", 0, true)
         cbModOnly:SetExtent(18, 17)
         cbModOnly:RemoveAllAnchors()
-        cbModOnly:AddAnchor("BOTTOMLEFT", detailWin, 210, -48)
+        cbModOnly:AddAnchor("BOTTOMLEFT", detailWin, 210, -60)
         local cbmBgs = {}
         local cbmCoords = {
             {0,0,18,17},{0,0,18,17},{0,0,18,17},
@@ -1774,17 +1878,14 @@ local function openDetailWindow(farmId)
         cbModOnlyLbl:SetText("Scan only when holding modifier")
         cbModOnlyLbl:SetAutoResize(true)
         cbModOnlyLbl:AddAnchor("LEFT", cbModOnly, "RIGHT", 4, 0)
-        if cbModOnlyLbl.style then cbModOnlyLbl.style:SetAlign(ALIGN.LEFT); cbModOnlyLbl.style:SetFontSize(FONT_SIZE.SMALL or 14) end
-        if ApplyTextColor and FONT_COLOR then ApplyTextColor(cbModOnlyLbl, FONT_COLOR.DEFAULT) end
+        ftStyleLabel(cbModOnlyLbl, FARM_UI.white, 12, ALIGN.LEFT)
         cbModOnlyLbl:Show(true)
         detailWin._cbModOnlyLbl = cbModOnlyLbl
 
         -- Back button (bottom-left)
         local btnBack = detailWin:CreateChildWidget("button", "ft_detail_back", 0, true)
-        if ApplyButtonSkin and BUTTON_BASIC then ApplyButtonSkin(btnBack, BUTTON_BASIC.DEFAULT) end
-        btnBack:SetExtent(70, 28)
-        btnBack:AddAnchor("BOTTOMLEFT", detailWin, 10, -10)
-        btnBack:SetText("< Back")
+        ftPlace(btnBack, "BOTTOMLEFT", detailWin, nil, 28, -29, 74, 26)
+        ftStyleButton(btnBack, "< Back", FARM_UI.button)
         function btnBack:OnClick()
             closeDetailWindow()
             if mainWin then
@@ -1798,10 +1899,8 @@ local function openDetailWindow(farmId)
 
         -- Filters button (right of Back)
         local btnFiltersBottom = detailWin:CreateChildWidget("button", "ft_detail_filters_btm", 0, true)
-        if ApplyButtonSkin and BUTTON_BASIC then ApplyButtonSkin(btnFiltersBottom, BUTTON_BASIC.DEFAULT) end
-        btnFiltersBottom:SetExtent(80, 28)
-        btnFiltersBottom:AddAnchor("BOTTOMLEFT", detailWin, 88, -10)
-        btnFiltersBottom:SetText("Filters")
+        ftPlace(btnFiltersBottom, "BOTTOMLEFT", detailWin, nil, 110, -29, 82, 26)
+        ftStyleButton(btnFiltersBottom, "Filters", FARM_UI.buttonBlue)
         function btnFiltersBottom:OnClick()
             local f = detailFarmId and getFarmById(detailFarmId)
             if f then openFilterWindow(f) end
@@ -1811,11 +1910,8 @@ local function openDetailWindow(farmId)
 
         -- Clear button (bottom-right)
         local btnReset = detailWin:CreateChildWidget("button", "ft_detail_reset", 0, true)
-        if ApplyButtonSkin and BUTTON_BASIC then ApplyButtonSkin(btnReset, BUTTON_BASIC.DEFAULT) end
-        btnReset:SetExtent(100, 28)
-        btnReset:AddAnchor("BOTTOMRIGHT", detailWin, -10, -10)
-        btnReset:SetText("Clear All")
-        if btnReset.style then btnReset.style:SetColor(1, 0.5, 0.2, 1) end
+        ftPlace(btnReset, "BOTTOMRIGHT", detailWin, nil, -28, -29, 104, 26)
+        ftStyleButton(btnReset, "Clear All", FARM_UI.red)
         function btnReset:OnClick()
             local f = detailFarmId and getFarmById(detailFarmId)
             if not f then return end
@@ -2236,9 +2332,8 @@ local function rebuildFilterLists(farm)
     filterRebuildId = filterRebuildId + 1
     local rid = filterRebuildId
 
-    -- Hide old containers
-    if filterWin._playerContainer then filterWin._playerContainer:Show(false) end
-    if filterWin._entityContainer then filterWin._entityContainer:Show(false) end
+    ftDestroyWidget(filterWin._playerContainer)
+    ftDestroyWidget(filterWin._entityContainer)
 
     local players  = farm.scanPlayers  or {}
     local entities = farm.scanEntities or {}
@@ -2267,15 +2362,16 @@ local function rebuildFilterLists(farm)
         local c = filterWin:CreateChildWidget("emptywidget", containerName.."_"..rid, 0, true)
         c:SetExtent(FW_COL_W, rowCount * FW_ROW_H)
         c:RemoveAllAnchors()
-        c:AddAnchor("TOPLEFT", filterWin, xOff, 90)
+        c:AddAnchor("TOPLEFT", filterWin, xOff, 104)
         c:Show(true)
 
         if #list == 0 then
             local lbl = c:CreateChildWidget("label", containerName.."_empty_"..rid, 0, true)
             lbl:SetText(xOff < 200 and "No players scanned yet." or "No entities scanned yet.")
+            lbl:SetExtent(FW_COL_W - 12, 22)
             lbl:AddAnchor("TOPLEFT", c, 0, 4)
-            lbl:SetAutoResize(true)
-            if ApplyTextColor and FONT_COLOR then ApplyTextColor(lbl, FONT_COLOR.MIDDLE_GRAY or FONT_COLOR.DEFAULT) end
+            lbl:SetAutoResize(false)
+            ftStyleLabel(lbl, FARM_UI.muted, 12, ALIGN.LEFT)
             lbl:Show(true)
         else
             for i = startIdx, endIdx do
@@ -2283,25 +2379,33 @@ local function rebuildFilterLists(farm)
                 local y     = (i - startIdx) * FW_ROW_H
                 local uid   = fwId()
                 local captured = entry
+                local rowBg = c:CreateChildWidget("emptywidget", containerName.."_row_"..uid, 0, true)
+                rowBg:SetExtent(FW_COL_W, FW_ROW_H - 2)
+                rowBg:AddAnchor("TOPLEFT", c, 0, y)
+                local tone = (i - startIdx + 1) % 2 == 0 and FARM_UI.rowEven or FARM_UI.rowOdd
+                local shade = rowBg:CreateColorDrawable(tone[1], tone[2], tone[3], tone[4], "background")
+                shade:AddAnchor("TOPLEFT", rowBg, 0, 0)
+                shade:AddAnchor("BOTTOMRIGHT", rowBg, 0, 0)
+                shade:Show(true)
+                rowBg:Show(true)
                 makeFilterCheckbox(c, uid, 0, y+1, entry.enabled, function(val)
                     captured.enabled = val
                     saveFarm(farm)
                 end)
                 local lbl = c:CreateChildWidget("label", containerName.."_lbl_"..uid, 0, true)
                 lbl:SetExtent(FW_COL_W - 26, FW_ROW_H)
-                lbl:AddAnchor("TOPLEFT", c, 24, y-6)
+                lbl:AddAnchor("TOPLEFT", c, 24, y-2)
                 lbl:SetText(entry.name ~= "" and entry.name or "(no owner)")
                 lbl:SetAutoResize(false)
-                if lbl.style then lbl.style:SetAlign(ALIGN.LEFT); lbl.style:SetFontSize(FONT_SIZE.MIDDLE or 16) end
-                if ApplyTextColor and FONT_COLOR then ApplyTextColor(lbl, FONT_COLOR.DEFAULT) end
+                ftStyleLabel(lbl, FARM_UI.white, 12, ALIGN.LEFT)
                 lbl:Show(true)
             end
         end
         return c
     end
 
-    filterWin._playerContainer = buildColumn(players,  filterPlayerPage, "ft_fw_pc", 10)
-    filterWin._entityContainer = buildColumn(entities, filterEntityPage, "ft_fw_ec", 320)
+    filterWin._playerContainer = buildColumn(players,  filterPlayerPage, "ft_fw_pc", 18)
+    filterWin._entityContainer = buildColumn(entities, filterEntityPage, "ft_fw_ec", 312)
 end
 
 openFilterWindow = function(farm)
@@ -2309,14 +2413,19 @@ openFilterWindow = function(farm)
         filterWin = api.Interface:CreateWindow("tax_tracker_farm_filters", "Scan Filters", FW_W, FW_H)
         filterWin:RemoveAllAnchors()
         filterWin:AddAnchor("CENTER", "UIParent", 0, 0)
+        ftAddPanel(filterWin, "ft_filter_root", 12, 42, FW_W - 24, FW_H - 54, FARM_UI.panel)
+        ftAddPanel(filterWin, "ft_filter_left_header", 18, 42, FW_COL_W, 28, FARM_UI.header)
+        ftAddPanel(filterWin, "ft_filter_right_header", 312, 42, FW_COL_W, 28, FARM_UI.header)
+        ftAddPanel(filterWin, "ft_filter_left_list", 18, 104, FW_COL_W, 260, FARM_UI.listPanel)
+        ftAddPanel(filterWin, "ft_filter_right_list", 312, 104, FW_COL_W, 260, FARM_UI.listPanel)
+        ftAddPanel(filterWin, "ft_filter_footer", 18, FW_H - 48, FW_W - 36, 26, FARM_UI.groupActions)
 
         -- Column headers
         local hdrPlayers = filterWin:CreateChildWidget("label", "ft_fw_hdr_p", 0, true)
-        hdrPlayers:SetExtent(FW_COL_W - 28, 24)
-        hdrPlayers:AddAnchor("TOPLEFT", filterWin, 36, 44)
+        hdrPlayers:SetExtent(FW_COL_W - 42, 24)
+        hdrPlayers:AddAnchor("TOPLEFT", filterWin, 52, 46)
         hdrPlayers:SetText("Scan only from these players:")
-        if hdrPlayers.style then hdrPlayers.style:SetFontSize(FONT_SIZE.LARGE or 18); hdrPlayers.style:SetAlign(ALIGN.LEFT) end
-        if ApplyTextColor and FONT_COLOR then ApplyTextColor(hdrPlayers, FONT_COLOR.DEFAULT) end
+        ftStyleLabel(hdrPlayers, FARM_UI.gold, 12, ALIGN.LEFT)
         hdrPlayers:Show(true)
 
         -- Player filter enable checkbox
@@ -2343,7 +2452,7 @@ openFilterWindow = function(farm)
             return cb
         end
 
-        filterWin._cbPlayerFilter = makeInlineCb("ft_fw_cb_pfilter", 10, 46, function(val)
+        filterWin._cbPlayerFilter = makeInlineCb("ft_fw_cb_pfilter", 28, 48, function(val)
             if filterWin._currentFarm then
                 filterWin._currentFarm.filterPlayersEnabled = val
                 saveFarm(filterWin._currentFarm)
@@ -2352,14 +2461,13 @@ openFilterWindow = function(farm)
         end)
 
         local hdrEntities = filterWin:CreateChildWidget("label", "ft_fw_hdr_e", 0, true)
-        hdrEntities:SetExtent(FW_COL_W - 28, 24)
-        hdrEntities:AddAnchor("TOPLEFT", filterWin, 346, 44)
+        hdrEntities:SetExtent(FW_COL_W - 42, 24)
+        hdrEntities:AddAnchor("TOPLEFT", filterWin, 346, 46)
         hdrEntities:SetText("Scan only these entities:")
-        if hdrEntities.style then hdrEntities.style:SetFontSize(FONT_SIZE.LARGE or 18); hdrEntities.style:SetAlign(ALIGN.LEFT) end
-        if ApplyTextColor and FONT_COLOR then ApplyTextColor(hdrEntities, FONT_COLOR.DEFAULT) end
+        ftStyleLabel(hdrEntities, FARM_UI.gold, 12, ALIGN.LEFT)
         hdrEntities:Show(true)
 
-        filterWin._cbEntityFilter = makeInlineCb("ft_fw_cb_efilter", 320, 46, function(val)
+        filterWin._cbEntityFilter = makeInlineCb("ft_fw_cb_efilter", 322, 48, function(val)
             if filterWin._currentFarm then
                 filterWin._currentFarm.filterEntitiesEnabled = val
                 saveFarm(filterWin._currentFarm)
@@ -2367,48 +2475,24 @@ openFilterWindow = function(farm)
             end
         end)
 
-        -- Column divider
-        local div = filterWin:CreateColorDrawable(0.3, 0.3, 0.5, 0.5, "background")
-        div:SetExtent(1, FW_H - 80)
-        div:RemoveAllAnchors()
-        div:AddAnchor("TOPLEFT", filterWin, 308, 44)
-        div:Show(true)
-
-        -- Separator below headers
-        local sep = filterWin:CreateColorDrawable(0.3, 0.3, 0.5, 0.5, "background")
-        sep:SetExtent(FW_W - 20, 1)
-        sep:RemoveAllAnchors()
-        sep:AddAnchor("TOPLEFT", filterWin, 10, 76)
-        sep:Show(true)
-
-        -- Bottom separator
-        local sepBot = filterWin:CreateColorDrawable(0.3, 0.3, 0.5, 0.5, "background")
-        sepBot:SetExtent(FW_W - 20, 1)
-        sepBot:RemoveAllAnchors()
-        sepBot:AddAnchor("BOTTOMLEFT", filterWin, 10, -46)
-        sepBot:Show(true)
-
         -- Reset button (bottom-right)
         local btnReset = filterWin:CreateChildWidget("button", "ft_fw_reset", 0, true)
-        if ApplyButtonSkin and BUTTON_BASIC then ApplyButtonSkin(btnReset, BUTTON_BASIC.DEFAULT) end
-        btnReset:SetExtent(70, 28)
-        btnReset:AddAnchor("BOTTOMRIGHT", filterWin, -10, -10)
-        btnReset:SetText("Reset")
-        if btnReset.style then btnReset.style:SetColor(1, 0.5, 0.2, 1) end
+        ftPlace(btnReset, "BOTTOMRIGHT", filterWin, nil, -28, -25, 76, 22)
+        ftStyleButton(btnReset, "Reset", FARM_UI.red)
         filterWin._btnReset = btnReset
         btnReset:Show(true)
 
         filterWin._playerContainer = filterWin:CreateChildWidget("emptywidget", "ft_fw_pc_init", 0, true)
         filterWin._playerContainer:SetExtent(FW_COL_W, 10)
-        filterWin._playerContainer:AddAnchor("TOPLEFT", filterWin, 10, 90)
+        filterWin._playerContainer:AddAnchor("TOPLEFT", filterWin, 18, 104)
         filterWin._entityContainer = filterWin:CreateChildWidget("emptywidget", "ft_fw_ec_init", 0, true)
         filterWin._entityContainer:SetExtent(FW_COL_W, 10)
-        filterWin._entityContainer:AddAnchor("TOPLEFT", filterWin, 320, 90)
+        filterWin._entityContainer:AddAnchor("TOPLEFT", filterWin, 312, 104)
 
         -- Pagination for player column
         local pPageCtrl = W_CTRL.CreatePageControl("ft_fw_p_pagectrl", filterWin, "tutorial")
         pPageCtrl:RemoveAllAnchors()
-        pPageCtrl:AddAnchor("BOTTOMLEFT", filterWin, 10, -10)
+        pPageCtrl:AddAnchor("BOTTOMLEFT", filterWin, 18, -25)
         function pPageCtrl:ProcOnPageChanged(pageIndex)
             filterPlayerPage = pageIndex
             rebuildFilterLists(filterWin._currentFarm)
@@ -2419,7 +2503,7 @@ openFilterWindow = function(farm)
         -- Pagination for entity column
         local ePageCtrl = W_CTRL.CreatePageControl("ft_fw_e_pagectrl", filterWin, "tutorial")
         ePageCtrl:RemoveAllAnchors()
-        ePageCtrl:AddAnchor("BOTTOM", filterWin, 90, -10)
+        ePageCtrl:AddAnchor("BOTTOMLEFT", filterWin, 312, -25)
         function ePageCtrl:ProcOnPageChanged(pageIndex)
             filterEntityPage = pageIndex
             rebuildFilterLists(filterWin._currentFarm)
@@ -2470,16 +2554,14 @@ local function createFloatingBtn()
 
     floatingBtnSeq = floatingBtnSeq + 1
     floatingBtn = api.Interface:CreateEmptyWindow("ft_floating_btn_"..floatingBtnSeq, "UIParent")
-    floatingBtn.background = floatingBtn:CreateNinePartDrawable(TEXTURE_PATH.HUD, "background")
-    floatingBtn.background:SetTextureInfo("bg_quest")
-    floatingBtn.background:SetColor(0, 0, 0, 0.6)
+    floatingBtn.background = floatingBtn:CreateColorDrawable(0.05, 0.05, 0.06, 0.62, "background")
     floatingBtn.background:AddAnchor("TOPLEFT", floatingBtn, 0, 0)
     floatingBtn.background:AddAnchor("BOTTOMRIGHT", floatingBtn, 0, 0)
     floatingBtn:AddAnchor("TOPLEFT", "UIParent", settings.floatingBtnX or 200, settings.floatingBtnY or 200)
     settings.floatingBtnX = settings.floatingBtnX or 200
     settings.floatingBtnY = settings.floatingBtnY or 200
     saveSettings()
-    floatingBtn:SetExtent(120, 40)
+    floatingBtn:SetExtent(116, 34)
 
     function floatingBtn:OnDragStart()
         if api.Input:IsShiftKeyDown() then
@@ -2501,14 +2583,40 @@ local function createFloatingBtn()
     floatingBtn:SetHandler("OnDragStop", floatingBtn.OnDragStop)
 
     local btn = api.Interface:CreateWidget("button", "ft_floating_inner_btn_"..floatingBtnSeq, floatingBtn)
-    api.Interface:ApplyButtonSkin(btn, BUTTON_BASIC.DEFAULT)
-    btn:SetExtent(110, 28)
+    btn:SetExtent(104, 24)
     btn:RemoveAllAnchors()
-    btn:AddAnchor("TOPLEFT", floatingBtn, 5, 6)
-    btn:SetText(settings.autotrackerEnabled and "Auto: ON" or "Auto: OFF")
+    btn:AddAnchor("TOPLEFT", floatingBtn, 6, 5)
+    btn:SetText("")
+
+    btn._bg = btn:CreateColorDrawable(0.11, 0.11, 0.13, 0.92, "background")
+    btn._bg:AddAnchor("TOPLEFT", btn, 0, 0)
+    btn._bg:AddAnchor("BOTTOMRIGHT", btn, 0, 0)
+    btn._bg:Show(true)
+
+    btn._label = btn:CreateChildWidget("label", "ft_floating_inner_label_"..floatingBtnSeq, 0, true)
+    btn._label:SetExtent(104, 22)
+    btn._label:AddAnchor("TOPLEFT", btn, 0, 1)
+    if btn._label.style then
+        if btn._label.style.SetFontSize then btn._label.style:SetFontSize(11) end
+        if btn._label.style.SetAlign then btn._label.style:SetAlign(ALIGN.CENTER) end
+        if btn._label.style.SetColor then btn._label.style:SetColor(1, 1, 1, 1) end
+    end
+    if btn._label.EnablePick then btn._label:EnablePick(false) end
+    btn._label:Show(true)
+
+    function btn:SetCleanText(text)
+        if self._label then self._label:SetText(text or "") end
+    end
+    function btn:SetTone(color)
+        local c = color or {0.11, 0.11, 0.13, 0.92}
+        if self._bg and self._bg.SetColor then self._bg:SetColor(c[1], c[2], c[3], c[4]) end
+    end
+    btn:SetCleanText(settings.autotrackerEnabled and "AUTO ON" or "AUTO OFF")
+    btn:SetTone(settings.autotrackerEnabled and {0.12, 0.28, 0.15, 0.95} or {0.11, 0.11, 0.13, 0.92})
     btn.OnClick = function(self)
         setAutotrackerEnabled(not settings.autotrackerEnabled)
-        self:SetText(settings.autotrackerEnabled and "Auto: ON" or "Auto: OFF")
+        if self.SetCleanText then self:SetCleanText(settings.autotrackerEnabled and "AUTO ON" or "AUTO OFF") end
+        if self.SetTone then self:SetTone(settings.autotrackerEnabled and {0.12, 0.28, 0.15, 0.95} or {0.11, 0.11, 0.13, 0.92}) end
     end
     btn:SetHandler("OnClick", btn.OnClick)
     btn:Show(true)
@@ -2522,8 +2630,8 @@ end
 -- SETTINGS WINDOW
 -- ============================================================
 
-local SETTINGS_W = 390
-local SETTINGS_H = 360
+local SETTINGS_W = 500
+local SETTINGS_H = 380
 
 local function openSettingsWindow()
     if settingsWin then
@@ -2537,19 +2645,90 @@ local function openSettingsWindow()
     settingsWin:AddAnchor("CENTER", "UIParent", 0, 0)
     settingsWin:SetHandler("OnCloseByEsc", function() settingsWin:Show(false) end)
 
-    local bg = settingsWin:CreateColorDrawable(0, 0, 0, 0.55, "background")
-    bg:AddAnchor("TOPLEFT", settingsWin, 8, 36)
-    bg:AddAnchor("BOTTOMRIGHT", settingsWin, -8, -8)
-    bg:Show(true)
+    local ui = {
+        white = {1, 1, 1, 1}, muted = {0.72, 0.72, 0.72, 1}, gold = {1, 0.84, 0, 1},
+        green = {0.12, 0.28, 0.15, 0.95}, red = {0.24, 0.09, 0.09, 0.95},
+        button = {0.11, 0.11, 0.13, 0.92}, panel = {0.05, 0.05, 0.06, 0.64},
+        header = {0.09, 0.09, 0.11, 0.95}, input = {0.11, 0.11, 0.125, 0.72},
+        groupDetails = {0.07, 0.07, 0.08, 0.74}, groupTools = {0.055, 0.06, 0.07, 0.74},
+        groupActions = {0.065, 0.065, 0.075, 0.74},
+        rowOdd = {0.08, 0.08, 0.095, 0.72}, rowEven = {0.12, 0.12, 0.135, 0.72}
+    }
 
-    -- Modifier key label
-    local modLbl = settingsWin:CreateChildWidget("label", "ft_sw_mod_lbl", 0, true)
-    modLbl:SetExtent(200, 24)
-    modLbl:AddAnchor("TOPLEFT", settingsWin, 18, 48)
-    modLbl:SetText("Scan trigger key:")
-    if modLbl.style then modLbl.style:SetFontSize(FONT_SIZE.LARGE or 18); modLbl.style:SetAlign(ALIGN.LEFT) end
-    if ApplyTextColor and FONT_COLOR then ApplyTextColor(modLbl, FONT_COLOR.DEFAULT) end
-    modLbl:Show(true)
+    local function panel(x, y, w, h, color)
+        local c = color or ui.panel
+        local box = settingsWin:CreateChildWidget("emptywidget", "ft_sw_panel_" .. tostring(x) .. "_" .. tostring(y) .. "_" .. tostring(h), 0, true)
+        box:SetExtent(w, h)
+        box:AddAnchor("TOPLEFT", settingsWin, x, y)
+        local p = box:CreateColorDrawable(c[1], c[2], c[3], c[4], "background")
+        p:AddAnchor("TOPLEFT", box, 0, 0)
+        p:AddAnchor("BOTTOMRIGHT", box, 0, 0)
+        p:Show(true)
+        box:Show(true)
+        return box
+    end
+
+    local function label(id, text, x, y, w, color, size)
+        local l = settingsWin:CreateChildWidget("label", id, 0, true)
+        l:SetText(text or "")
+        l:SetExtent(w or 260, 22)
+        l:AddAnchor("TOPLEFT", settingsWin, x, y)
+        if l.style then
+            if l.style.SetFontSize then l.style:SetFontSize(size or 12) end
+            if l.style.SetAlign then l.style:SetAlign(ALIGN.LEFT) end
+            if l.style.SetColor then
+                local c = color or ui.white
+                l.style:SetColor(c[1], c[2], c[3], c[4])
+            elseif ApplyTextColor and FONT_COLOR then
+                ApplyTextColor(l, FONT_COLOR.DEFAULT)
+            end
+        end
+        l:Show(true)
+        return l
+    end
+
+    local function button(id, text, x, y, w, h, tone, onClick)
+        local b = settingsWin:CreateChildWidget("button", id, 0, true)
+        b:SetExtent(w or 120, h or 24)
+        b:AddAnchor("TOPLEFT", settingsWin, x, y)
+        b:SetText("")
+        local c = tone or ui.button
+        b._bg = b:CreateColorDrawable(c[1], c[2], c[3], c[4], "background")
+        b._bg:AddAnchor("TOPLEFT", b, 0, 0)
+        b._bg:AddAnchor("BOTTOMRIGHT", b, 0, 0)
+        b._bg:Show(true)
+        b._label = b:CreateChildWidget("label", id .. "_label", 0, true)
+        b._label:SetText(text or "")
+        b._label:SetExtent(w or 120, (h or 24) - 2)
+        b._label:AddAnchor("TOPLEFT", b, 0, 1)
+        if b._label.style then
+            if b._label.style.SetFontSize then b._label.style:SetFontSize(11) end
+            if b._label.style.SetAlign then b._label.style:SetAlign(ALIGN.CENTER) end
+            if b._label.style.SetColor then b._label.style:SetColor(1, 1, 1, 1) end
+        end
+        if b._label.EnablePick then b._label:EnablePick(false) end
+        b._label:Show(true)
+        function b:SetCleanText(nextText)
+            if self._label then self._label:SetText(nextText or "") end
+        end
+        function b:SetTone(nextTone)
+            local nextColor = nextTone or ui.button
+            if self._bg and self._bg.SetColor then
+                self._bg:SetColor(nextColor[1], nextColor[2], nextColor[3], nextColor[4])
+            end
+        end
+        if onClick then
+            function b:OnClick() onClick(self) end
+            b:SetHandler("OnClick", b.OnClick)
+        end
+        b:Show(true)
+        return b
+    end
+
+    panel(12, 42, SETTINGS_W - 24, SETTINGS_H - 54, ui.panel)
+    panel(12, 42, SETTINGS_W - 24, 26, ui.header)
+    label("ft_sw_title", "Autotracker", 24, 47, 220, ui.gold, 13)
+    panel(20, 80, SETTINGS_W - 40, 104, ui.groupDetails)
 
     local MOD_OPTIONS = { "Any modifier", "Ctrl", "Alt", "Shift", "None required" }
     local MOD_VALUES  = { "any", "ctrl", "alt", "shift", "none" }
@@ -2558,177 +2737,80 @@ local function openSettingsWindow()
         return 1
     end
 
-    local ok, combo = pcall(function() return api.Interface:CreateComboBox(settingsWin) end)
-    if ok and combo then
-        combo:RemoveAllAnchors()
-        combo:AddAnchor("TOPLEFT", settingsWin, 160, 48)
-        combo:SetWidth(190)
-        combo.dropdownItem = MOD_OPTIONS
-        combo:Select(modIndexFromValue(settings.scanModifier or "any"))
-        function combo:SelectedProc()
-            settings.scanModifier = MOD_VALUES[self:GetSelectedIndex()] or "any"
-            saveSettings()
-        end
-    else
-        local cycleBtn = settingsWin:CreateChildWidget("button", "ft_sw_mod_cycle", 0, true)
-        if ApplyButtonSkin and BUTTON_BASIC then ApplyButtonSkin(cycleBtn, BUTTON_BASIC.DEFAULT) end
-        cycleBtn:SetExtent(190, 24)
-        cycleBtn:AddAnchor("TOPLEFT", settingsWin, 160, 48)
-        local function updateCycleBtn()
-            cycleBtn:SetText(MOD_OPTIONS[modIndexFromValue(settings.scanModifier or "any")] or "Any modifier")
-        end
-        updateCycleBtn()
-        function cycleBtn:OnClick()
-            local idx = (modIndexFromValue(settings.scanModifier or "any") % #MOD_VALUES) + 1
-            settings.scanModifier = MOD_VALUES[idx]
-            saveSettings()
-            updateCycleBtn()
-        end
-        cycleBtn:SetHandler("OnClick", cycleBtn.OnClick)
-        cycleBtn:Show(true)
+    label("ft_fb_mod_lbl", "Scan trigger key", 30, 86, 160, ui.muted)
+    local modBtn
+    local function updateModBtn()
+        if modBtn then modBtn:SetCleanText(MOD_OPTIONS[modIndexFromValue(settings.scanModifier or "any")] or "Any modifier") end
     end
-
-    -- "Show Autotracker button" checkbox
-    local cbFloat = settingsWin:CreateChildWidget("checkbutton", "ft_sw_cb_float", 0, true)
-    cbFloat:SetExtent(18, 17)
-    cbFloat:RemoveAllAnchors()
-    cbFloat:AddAnchor("TOPLEFT", settingsWin, 18, 88)
-    local cbfBgs = {}
-    local cbfCoords = { {0,0,18,17},{0,0,18,17},{0,0,18,17},{0,17,18,17},{18,0,18,17},{18,17,18,17} }
-    for j = 1, 6 do
-        cbfBgs[j] = cbFloat:CreateImageDrawable("ui/button/check_button.dds", "background")
-        cbfBgs[j]:SetExtent(16, 16); cbfBgs[j]:AddAnchor("CENTER", cbFloat, 0, 0)
-        cbfBgs[j]:SetTexture("ui/button/check_button.dds")
-        local c = cbfCoords[j]; cbfBgs[j]:SetCoords(c[1], c[2], c[3], c[4])
-    end
-    cbFloat:SetNormalBackground(cbfBgs[1]); cbFloat:SetHighlightBackground(cbfBgs[2])
-    cbFloat:SetPushedBackground(cbfBgs[3]); cbFloat:SetDisabledBackground(cbfBgs[4])
-    cbFloat:SetCheckedBackground(cbfBgs[5]); cbFloat:SetDisabledCheckedBackground(cbfBgs[6])
-    cbFloat:SetChecked(settings.showFloatingBtn and true or false)
-    function cbFloat:OnCheckChanged()
-        settings.showFloatingBtn = self:GetChecked()
+    modBtn = button("ft_fb_mod_btn", "", 250, 83, 210, 24, ui.button, function()
+        local idx = (modIndexFromValue(settings.scanModifier or "any") % #MOD_VALUES) + 1
+        settings.scanModifier = MOD_VALUES[idx]
         saveSettings()
-        if settings.showFloatingBtn then
-            createFloatingBtn()
-        else
-            destroyFloatingBtn()
-        end
-    end
-    cbFloat:SetHandler("OnCheckChanged", cbFloat.OnCheckChanged)
-    cbFloat:Show(true)
-    settingsWin._cbFloat = cbFloat
+        updateModBtn()
+    end)
+    updateModBtn()
 
-    local cbFloatLbl = settingsWin:CreateChildWidget("label", "ft_sw_float_lbl", 0, true)
-    cbFloatLbl:SetText("Show Autotracker button")
-    cbFloatLbl:SetAutoResize(true)
-    cbFloatLbl:AddAnchor("LEFT", cbFloat, "RIGHT", 4, 0)
-    if cbFloatLbl.style then cbFloatLbl.style:SetAlign(ALIGN.LEFT); cbFloatLbl.style:SetFontSize(FONT_SIZE.MIDDLE or 16) end
-    if ApplyTextColor and FONT_COLOR then ApplyTextColor(cbFloatLbl, FONT_COLOR.DEFAULT) end
-    cbFloatLbl:Show(true)
-
-    -- "1-minute farm reminder" checkbox
-    local cbFarmReminder = settingsWin:CreateChildWidget("checkbutton", "ft_sw_cb_farm_reminder", 0, true)
-    cbFarmReminder:SetExtent(18, 17)
-    cbFarmReminder:RemoveAllAnchors()
-    cbFarmReminder:AddAnchor("TOPLEFT", settingsWin, 18, 118)
-    local cbrBgs = {}
-    local cbrCoords = { {0,0,18,17},{0,0,18,17},{0,0,18,17},{0,17,18,17},{18,0,18,17},{18,17,18,17} }
-    for j = 1, 6 do
-        cbrBgs[j] = cbFarmReminder:CreateImageDrawable("ui/button/check_button.dds", "background")
-        cbrBgs[j]:SetExtent(16, 16); cbrBgs[j]:AddAnchor("CENTER", cbFarmReminder, 0, 0)
-        cbrBgs[j]:SetTexture("ui/button/check_button.dds")
-        local c = cbrCoords[j]; cbrBgs[j]:SetCoords(c[1], c[2], c[3], c[4])
+    local floatBtn
+    local function updateFloatBtn()
+        if not floatBtn then return end
+        floatBtn:SetCleanText(settings.showFloatingBtn and "On" or "Off")
+        floatBtn:SetTone(settings.showFloatingBtn and ui.green or ui.button)
     end
-    cbFarmReminder:SetNormalBackground(cbrBgs[1]); cbFarmReminder:SetHighlightBackground(cbrBgs[2])
-    cbFarmReminder:SetPushedBackground(cbrBgs[3]); cbFarmReminder:SetDisabledBackground(cbrBgs[4])
-    cbFarmReminder:SetCheckedBackground(cbrBgs[5]); cbFarmReminder:SetDisabledCheckedBackground(cbrBgs[6])
-    cbFarmReminder:SetChecked(settings.farmMinuteReminderEnabled and true or false)
-    function cbFarmReminder:OnCheckChanged()
-        settings.farmMinuteReminderEnabled = self:GetChecked()
+    label("ft_fb_float_lbl", "Floating autotracker button", 30, 122, 260, ui.white)
+    floatBtn = button("ft_fb_float_btn", "", 340, 120, 120, 24, ui.button, function()
+        settings.showFloatingBtn = not settings.showFloatingBtn
         saveSettings()
+        if settings.showFloatingBtn then createFloatingBtn() else destroyFloatingBtn() end
+        updateFloatBtn()
+    end)
+    updateFloatBtn()
+
+    local reminderBtn
+    local function updateReminderBtn()
+        if not reminderBtn then return end
+        reminderBtn:SetCleanText(settings.farmMinuteReminderEnabled and "On" or "Off")
+        reminderBtn:SetTone(settings.farmMinuteReminderEnabled and ui.green or ui.button)
     end
-    cbFarmReminder:SetHandler("OnCheckChanged", cbFarmReminder.OnCheckChanged)
-    cbFarmReminder:Show(true)
+    label("ft_fb_reminder_lbl", "1-minute farm reminder popup", 30, 158, 260, ui.white)
+    reminderBtn = button("ft_fb_reminder_btn", "", 340, 156, 120, 24, ui.button, function()
+        settings.farmMinuteReminderEnabled = not settings.farmMinuteReminderEnabled
+        saveSettings()
+        updateReminderBtn()
+    end)
+    updateReminderBtn()
 
-    local cbFarmReminderLbl = settingsWin:CreateChildWidget("label", "ft_sw_farm_reminder_lbl", 0, true)
-    cbFarmReminderLbl:SetText("1-minute farm reminder popup")
-    cbFarmReminderLbl:SetAutoResize(true)
-    cbFarmReminderLbl:AddAnchor("LEFT", cbFarmReminder, "RIGHT", 4, 0)
-    if cbFarmReminderLbl.style then cbFarmReminderLbl.style:SetAlign(ALIGN.LEFT); cbFarmReminderLbl.style:SetFontSize(FONT_SIZE.MIDDLE or 16) end
-    if ApplyTextColor and FONT_COLOR then ApplyTextColor(cbFarmReminderLbl, FONT_COLOR.DEFAULT) end
-    cbFarmReminderLbl:Show(true)
-
-    local spotHeader = settingsWin:CreateChildWidget("label", "ft_sw_spot_header", 0, true)
-    spotHeader:SetText("Cooled Tree Trunk Spots")
-    spotHeader:SetExtent(340, 20)
-    spotHeader:AddAnchor("TOPLEFT", settingsWin, 18, 154)
-    if spotHeader.style then spotHeader.style:SetAlign(ALIGN.LEFT); spotHeader.style:SetFontSize(FONT_SIZE.LARGE or 18) end
-    if ApplyTextColor and FONT_COLOR then ApplyTextColor(spotHeader, FONT_COLOR.DEFAULT) end
-    spotHeader:Show(true)
-
-    settingsCooledSpotLbl = settingsWin:CreateChildWidget("label", "ft_sw_spot_count", 0, true)
-    settingsCooledSpotLbl:SetExtent(340, 20)
-    settingsCooledSpotLbl:AddAnchor("TOPLEFT", settingsWin, 18, 180)
-    if settingsCooledSpotLbl.style then settingsCooledSpotLbl.style:SetAlign(ALIGN.LEFT); settingsCooledSpotLbl.style:SetFontSize(FONT_SIZE.MIDDLE or 16) end
-    if ApplyTextColor and FONT_COLOR then ApplyTextColor(settingsCooledSpotLbl, FONT_COLOR.DEFAULT) end
-    settingsCooledSpotLbl:Show(true)
-
-    local spotNameLbl = settingsWin:CreateChildWidget("label", "ft_sw_spot_name_lbl", 0, true)
-    spotNameLbl:SetText("Spot name:")
-    spotNameLbl:SetExtent(90, 24)
-    spotNameLbl:AddAnchor("TOPLEFT", settingsWin, 18, 208)
-    if spotNameLbl.style then spotNameLbl.style:SetAlign(ALIGN.LEFT); spotNameLbl.style:SetFontSize(FONT_SIZE.MIDDLE or 16) end
-    if ApplyTextColor and FONT_COLOR then ApplyTextColor(spotNameLbl, FONT_COLOR.DEFAULT) end
-    spotNameLbl:Show(true)
+    panel(12, 208, SETTINGS_W - 24, 26, ui.header)
+    label("ft_fb_spot_header", "Cooled Tree Trunk Spots", 24, 213, 260, ui.gold, 13)
+    panel(20, 246, SETTINGS_W - 40, 84, ui.groupTools)
+    settingsCooledSpotLbl = label("ft_fb_spot_count", "", 30, 254, 420, ui.white)
+    label("ft_fb_spot_name_lbl", "Spot name", 30, 284, 80, ui.muted)
+    panel(108, 280, 262, 30, ui.input)
 
     if W_CTRL and W_CTRL.CreateEdit then
-        settingsSpotNameEdit = W_CTRL.CreateEdit("ft_sw_spot_name_edit", settingsWin)
+        settingsSpotNameEdit = W_CTRL.CreateEdit("ft_fb_spot_name_edit", settingsWin)
     else
-        settingsSpotNameEdit = settingsWin:CreateChildWidget("edit", "ft_sw_spot_name_edit", 0, true)
+        settingsSpotNameEdit = settingsWin:CreateChildWidget("edit", "ft_fb_spot_name_edit", 0, true)
     end
-    settingsSpotNameEdit:SetExtent(245, 28)
-    settingsSpotNameEdit:AddAnchor("TOPLEFT", settingsWin, 105, 204)
+    settingsSpotNameEdit:SetExtent(254, 26)
+    settingsSpotNameEdit:AddAnchor("TOPLEFT", settingsWin, 112, 282)
     settingsSpotNameEdit:SetText("")
+    if settingsSpotNameEdit.style then
+        if settingsSpotNameEdit.style.SetFontSize then settingsSpotNameEdit.style:SetFontSize(12) end
+        if settingsSpotNameEdit.style.SetAlign then settingsSpotNameEdit.style:SetAlign(ALIGN.LEFT) end
+    end
     settingsSpotNameEdit:Show(true)
 
-    local captureSpotBtn = settingsWin:CreateChildWidget("button", "ft_sw_capture_tree_spot", 0, true)
-    if ApplyButtonSkin and BUTTON_BASIC then ApplyButtonSkin(captureSpotBtn, BUTTON_BASIC.DEFAULT) end
-    captureSpotBtn:SetExtent(180, 28)
-    captureSpotBtn:AddAnchor("TOPLEFT", settingsWin, 18, 244)
-    captureSpotBtn:SetText("Capture Current Spot")
-    function captureSpotBtn:OnClick()
-        captureCooledTreeSpot()
-    end
-    captureSpotBtn:SetHandler("OnClick", captureSpotBtn.OnClick)
-    captureSpotBtn:Show(true)
-
-    local listSpotsBtn = settingsWin:CreateChildWidget("button", "ft_sw_list_tree_spots", 0, true)
-    if ApplyButtonSkin and BUTTON_BASIC then ApplyButtonSkin(listSpotsBtn, BUTTON_BASIC.DEFAULT) end
-    listSpotsBtn:SetExtent(130, 28)
-    listSpotsBtn:AddAnchor("LEFT", captureSpotBtn, "RIGHT", 10, 0)
-    listSpotsBtn:SetText("List Spots")
-    function listSpotsBtn:OnClick()
-        openSpotListWindow()
-    end
-    listSpotsBtn:SetHandler("OnClick", listSpotsBtn.OnClick)
-    listSpotsBtn:Show(true)
-
-    local clearSpotsBtn = settingsWin:CreateChildWidget("button", "ft_sw_clear_tree_spots", 0, true)
-    if ApplyButtonSkin and BUTTON_BASIC then ApplyButtonSkin(clearSpotsBtn, BUTTON_BASIC.DEFAULT) end
-    clearSpotsBtn:SetExtent(130, 28)
-    clearSpotsBtn:AddAnchor("TOPLEFT", settingsWin, 18, 280)
-    clearSpotsBtn:SetText("Clear Spots")
-    function clearSpotsBtn:OnClick()
+    panel(20, 334, SETTINGS_W - 40, 30, ui.groupActions)
+    button("ft_fb_capture", "Capture Spot", 30, 340, 130, 24, ui.green, function() captureCooledTreeSpot() end)
+    button("ft_fb_list", "List Spots", 170, 340, 110, 24, ui.button, function() openSpotListWindow() end)
+    button("ft_fb_clear", "Clear Spots", 290, 340, 110, 24, ui.red, function()
         settings.cooledTreeSpots = {}
         saveSettings()
         refreshSettingsLabels()
         if spotListWin and spotListWin:IsVisible() then rebuildSpotListWindow() end
-    end
-    clearSpotsBtn:SetHandler("OnClick", clearSpotsBtn.OnClick)
-    clearSpotsBtn:Show(true)
+    end)
 
     refreshSettingsLabels()
-
     settingsWin:Show(true)
 end
 
@@ -2736,18 +2818,18 @@ end
 -- MAIN WINDOW — farm list
 -- ============================================================
 
-local ROW_H          = 44
+local ROW_H          = 34
 local NAME_W         = 250
 local ZONE_W         = 160
 local EARLIEST_W     = 120
 local BTN_W          = 52
 local GAP            = 8
-local SCROLL_Y_START = 78
+local SCROLL_Y_START = 84
 
 local COL_NAME_X = 12
 local COL_ZONE_X = COL_NAME_X + NAME_W + GAP
 local COL_EARLIEST_X = COL_ZONE_X + ZONE_W + GAP
-local BTN_Y_OFF  = -math.floor(ROW_H / 2) + 23
+local BTN_Y_OFF  = 0
 
 rebuildFarmList = function()
     if not mainWin then return end
@@ -2766,13 +2848,11 @@ rebuildFarmList = function()
         mainWin._pageCtrl:SetCurrentPage(currentPage, false)
     end
 
-    for _, row in ipairs(mainListRows) do
-        if row and row.Show then row:Show(false) end
-    end
+    for _, row in ipairs(mainListRows) do ftDestroyWidget(row) end
     mainListRows = {}
     mainListTimeLbls = {}
 
-    if mainListContent and mainListContent.Show then mainListContent:Show(false) end
+    ftDestroyWidget(mainListContent)
 
     local startIdx = (currentPage - 1) * ROWS_PER_PAGE + 1
     local endIdx   = math.min(startIdx + ROWS_PER_PAGE - 1, #filtered)
@@ -2781,17 +2861,18 @@ rebuildFarmList = function()
 
     local contentH = math.max(1, #pageRows) * ROW_H
     mainListContent = mainWin:CreateChildWidget("emptywidget", "ft_list_content_"..rid, 0, true)
-    mainListContent:SetExtent(MAIN_W - 24, contentH)
+    mainListContent:SetExtent(MAIN_W - 36, contentH)
     mainListContent:RemoveAllAnchors()
-    mainListContent:AddAnchor("TOPLEFT", mainWin, 4, SCROLL_Y_START)
+    mainListContent:AddAnchor("TOPLEFT", mainWin, 18, SCROLL_Y_START)
     mainListContent:Show(true)
 
     if #filtered == 0 then
         local emptyLbl = mainListContent:CreateChildWidget("label", "ft_empty_lbl", 0, true)
         emptyLbl:SetText("No farms yet. Click [+ Add Land] to create one.")
+        emptyLbl:SetExtent(420, 22)
         emptyLbl:AddAnchor("TOPLEFT", mainListContent, 10, 10)
-        emptyLbl:SetAutoResize(true)
-        if ApplyTextColor and FONT_COLOR then ApplyTextColor(emptyLbl, FONT_COLOR.DEFAULT) end
+        emptyLbl:SetAutoResize(false)
+        ftStyleLabel(emptyLbl, FARM_UI.muted, 12, ALIGN.LEFT)
         emptyLbl:Show(true)
         return
     end
@@ -2800,15 +2881,11 @@ rebuildFarmList = function()
         local yOff = (i - 1) * ROW_H
 
         local rowBg = mainListContent:CreateChildWidget("emptywidget", "ft_row_bg_"..rid.."_"..i, 0, true)
-        rowBg:SetExtent(MAIN_W - 24, ROW_H - 2)
+        rowBg:SetExtent(MAIN_W - 36, ROW_H - 2)
         rowBg:RemoveAllAnchors()
         rowBg:AddAnchor("TOPLEFT", mainListContent, 0, yOff)
-        local rowShade
-        if i % 2 == 0 then
-            rowShade = rowBg:CreateColorDrawable(0.08, 0.10, 0.13, 0.62, "background")
-        else
-            rowShade = rowBg:CreateColorDrawable(0.02, 0.02, 0.02, 0.42, "background")
-        end
+        local rowTone = i % 2 == 0 and FARM_UI.rowEven or FARM_UI.rowOdd
+        local rowShade = rowBg:CreateColorDrawable(rowTone[1], rowTone[2], rowTone[3], rowTone[4], "background")
         rowShade:AddAnchor("TOPLEFT", rowBg, 0, 0)
         rowShade:AddAnchor("BOTTOMRIGHT", rowBg, 0, 0)
         rowShade:Show(true)
@@ -2822,52 +2899,44 @@ rebuildFarmList = function()
             lbl:AddAnchor("LEFT", rowBg, x, 0)
             lbl:SetText(txt)
             lbl:SetAutoResize(false)
-            if lbl.style then lbl.style:SetAlign(ALIGN.LEFT); lbl.style:SetFontSize(sz) end
-            if ApplyTextColor and FONT_COLOR then ApplyTextColor(lbl, FONT_COLOR.DEFAULT) end
+            ftStyleLabel(lbl, FARM_UI.white, sz or 12, ALIGN.LEFT)
             lbl:Show(true)
             return lbl
         end
-        makeRowLbl("ft_row_name_"..rid.."_"..i, fitText(farm.name or "", 32), COL_NAME_X, NAME_W, FONT_SIZE.MIDDLE or 16)
-        makeRowLbl("ft_row_zone_"..rid.."_"..i, fitText(zoneName(farm.zone), 22), COL_ZONE_X, ZONE_W, FONT_SIZE.SMALL or 14)
-        local earliestLbl = makeRowLbl("ft_row_earliest_"..rid.."_"..i, farmEarliestTime(farm), COL_EARLIEST_X, EARLIEST_W, FONT_SIZE.SMALL  or 14)
+        makeRowLbl("ft_row_name_"..rid.."_"..i, fitText(farm.name or "", 32), COL_NAME_X, NAME_W, 12)
+        makeRowLbl("ft_row_zone_"..rid.."_"..i, fitText(zoneName(farm.zone), 22), COL_ZONE_X, ZONE_W, 12)
+        local earliestLbl = makeRowLbl("ft_row_earliest_"..rid.."_"..i, farmEarliestTime(farm), COL_EARLIEST_X, EARLIEST_W, 12)
         table.insert(mainListTimeLbls, { lbl=earliestLbl, farmId=farm.id })
 
         local btnOpen = rowBg:CreateChildWidget("button", "ft_row_open_"..rid.."_"..i, 0, true)
-        if ApplyButtonSkin and BUTTON_BASIC then ApplyButtonSkin(btnOpen, BUTTON_BASIC.DEFAULT) end
-        btnOpen:SetExtent(BTN_W, 26); btnOpen:RemoveAllAnchors()
-        btnOpen:AddAnchor("RIGHT", rowBg, -4, BTN_Y_OFF)
-        btnOpen:SetText("Open")
+        ftPlace(btnOpen, "RIGHT", rowBg, nil, -4, BTN_Y_OFF, BTN_W, 24)
+        ftStyleButton(btnOpen, "Open", FARM_UI.green)
         local capturedId = farm.id
         function btnOpen:OnClick() openDetailWindow(capturedId) end
         btnOpen:SetHandler("OnClick", btnOpen.OnClick); btnOpen:Show(true)
 
         local btnTrack = rowBg:CreateChildWidget("button", "ft_row_track_"..rid.."_"..i, 0, true)
-        if ApplyButtonSkin and BUTTON_BASIC then ApplyButtonSkin(btnTrack, BUTTON_BASIC.DEFAULT) end
-        btnTrack:SetExtent(BTN_W, 26); btnTrack:RemoveAllAnchors()
-        btnTrack:AddAnchor("RIGHT", rowBg, -(BTN_W + GAP + 4), BTN_Y_OFF)
-        btnTrack:SetText("Track")
+        ftPlace(btnTrack, "RIGHT", rowBg, nil, -(BTN_W + GAP + 4), BTN_Y_OFF, BTN_W, 24)
+        ftStyleButton(btnTrack, "Track", FARM_UI.button)
         local capturedTrackFarm = farm
         function btnTrack:OnClick() showFarmInTracker(capturedTrackFarm) end
         btnTrack:SetHandler("OnClick", btnTrack.OnClick); btnTrack:Show(true)
 
+        local btnDel = rowBg:CreateChildWidget("button", "ft_row_del_"..rid.."_"..i, 0, true)
+        ftPlace(btnDel, "RIGHT", rowBg, nil, -((BTN_W + GAP) * 2 + 4), BTN_Y_OFF, BTN_W, 24)
+        ftStyleButton(btnDel, "Del", FARM_UI.red)
+        local capturedIdDel = farm.id
+        function btnDel:OnClick() deleteFarm(capturedIdDel); rebuildFarmList() end
+        btnDel:SetHandler("OnClick", btnDel.OnClick); btnDel:Show(true)
+
         local btnMap = rowBg:CreateChildWidget("button", "ft_row_map_"..rid.."_"..i, 0, true)
         api.Interface:ApplyButtonSkin(btnMap, BUTTON_CONTENTS.MAP_OPEN)
-        btnMap:SetExtent(30, 30)
-        btnMap:RemoveAllAnchors()
-        btnMap:AddAnchor("RIGHT", rowBg, -((BTN_W + GAP) * 2 + 4), BTN_Y_OFF)
+        ftPlace(btnMap, "RIGHT", rowBg, nil, -(BTN_W * 3 + GAP * 3 + 4), BTN_Y_OFF, 28, 28)
         local capturedFarm = farm
         function btnMap:OnClick()
             pcall(function() api.Map:ToggleMapWithPortal(323, capturedFarm.worldX, capturedFarm.worldY, 100) end)
         end
         btnMap:SetHandler("OnClick", btnMap.OnClick); btnMap:Show(true)
-
-        local btnDel = rowBg:CreateChildWidget("button", "ft_row_del_"..rid.."_"..i, 0, true)
-        api.Interface:ApplyButtonSkin(btnDel, BUTTON_CONTENTS.SKILL_ABILITY_DELETE)
-        btnDel:SetExtent(30, 30); btnDel:RemoveAllAnchors()
-        btnDel:AddAnchor("RIGHT", rowBg, -((BTN_W + GAP) * 2 + 30 + GAP + 4), BTN_Y_OFF)
-        local capturedIdDel = farm.id
-        function btnDel:OnClick() deleteFarm(capturedIdDel); rebuildFarmList() end
-        btnDel:SetHandler("OnClick", btnDel.OnClick); btnDel:Show(true)
     end
 end
 
@@ -2976,7 +3045,7 @@ local function rebuildLandPicker()
     if not landPickerWin then return end
 
     for _, row in ipairs(landPickerRows) do
-        if row and row.Show then row:Show(false) end
+        ftDestroyWidget(row)
     end
     landPickerRows = {}
     landPickerRebuildId = landPickerRebuildId + 1
@@ -3002,9 +3071,10 @@ local function rebuildLandPicker()
     if #rows == 0 then
         local emptyLbl = landPickerWin:CreateChildWidget("label", "tt_farm_land_empty_"..rid, 0, true)
         emptyLbl:SetText("No saved lands found.")
-        emptyLbl:SetAutoResize(true)
-        emptyLbl:AddAnchor("TOPLEFT", landPickerWin, 18, 74)
-        if ApplyTextColor and FONT_COLOR then ApplyTextColor(emptyLbl, FONT_COLOR.DEFAULT) end
+        emptyLbl:SetExtent(420, 22)
+        emptyLbl:SetAutoResize(false)
+        emptyLbl:AddAnchor("TOPLEFT", landPickerWin, 28, 112)
+        ftStyleLabel(emptyLbl, FARM_UI.muted, 12, ALIGN.LEFT)
         emptyLbl:Show(true)
         table.insert(landPickerRows, emptyLbl)
         return
@@ -3016,43 +3086,35 @@ local function rebuildLandPicker()
         local item = rows[idx]
         local rowIndex = idx - startIdx + 1
         local row = landPickerWin:CreateChildWidget("emptywidget", "tt_farm_land_row_"..rid.."_"..rowIndex, 0, true)
-        row:SetExtent(420, 29)
+        row:SetExtent(464, 28)
         row:RemoveAllAnchors()
-        row:AddAnchor("TOPLEFT", landPickerWin, 18, 68 + ((rowIndex - 1) * 31))
+        row:AddAnchor("TOPLEFT", landPickerWin, 18, 104 + ((rowIndex - 1) * 30))
         row:Show(true)
         table.insert(landPickerRows, row)
 
         local bg = nil
         if item.type == "zone" then
-            bg = row:CreateColorDrawable(0.08, 0.11, 0.16, 0.75, "background")
+            bg = row:CreateColorDrawable(FARM_UI.header[1], FARM_UI.header[2], FARM_UI.header[3], FARM_UI.header[4], "background")
         else
-            bg = row:CreateColorDrawable(0.02, 0.02, 0.02, 0.35, "background")
+            local tone = rowIndex % 2 == 0 and FARM_UI.rowEven or FARM_UI.rowOdd
+            bg = row:CreateColorDrawable(tone[1], tone[2], tone[3], tone[4], "background")
         end
         bg:AddAnchor("TOPLEFT", row, 0, 0)
         bg:AddAnchor("BOTTOMRIGHT", row, 0, 0)
         bg:Show(true)
 
         local label = row:CreateChildWidget("label", "tt_farm_land_label_"..rid.."_"..rowIndex, 0, true)
-        label:SetExtent(item.type == "zone" and 320 or 300, 28)
+        label:SetExtent(item.type == "zone" and 350 or 340, 28)
         label:RemoveAllAnchors()
         label:AddAnchor("LEFT", row, item.type == "zone" and 10 or 28, 0)
-        if label.style then
-            label.style:SetAlign(ALIGN.LEFT)
-            label.style:SetFontSize(item.type == "zone" and (FONT_SIZE.MIDDLE or 16) or (FONT_SIZE.SMALL or 14))
-        end
-        if ApplyTextColor and FONT_COLOR then
-            ApplyTextColor(label, item.type == "zone" and (FONT_COLOR.YELLOW or FONT_COLOR.DEFAULT) or FONT_COLOR.DEFAULT)
-        end
+        ftStyleLabel(label, item.type == "zone" and FARM_UI.gold or FARM_UI.white, 12, ALIGN.LEFT)
         label:Show(true)
 
         local btn = row:CreateChildWidget("button", "tt_farm_land_btn_"..rid.."_"..rowIndex, 0, true)
-        if ApplyButtonSkin and BUTTON_BASIC then ApplyButtonSkin(btn, BUTTON_BASIC.DEFAULT) end
-        btn:SetExtent(86, 24)
-        btn:RemoveAllAnchors()
-        btn:AddAnchor("RIGHT", row, -4, 0)
+        ftPlace(btn, "RIGHT", row, nil, -6, 0, 78, 22)
         if item.type == "zone" then
             label:SetText((landPickerExpandedZones[item.zone] and "- " or "+ ") .. item.zone .. " (" .. tostring(item.count) .. ")")
-            btn:SetText(landPickerExpandedZones[item.zone] and "Collapse" or "Expand")
+            ftStyleButton(btn, landPickerExpandedZones[item.zone] and "Collapse" or "Expand", FARM_UI.button)
             local capturedZone = item.zone
             function btn:OnClick()
                 landPickerExpandedZones[capturedZone] = not landPickerExpandedZones[capturedZone]
@@ -3061,7 +3123,7 @@ local function rebuildLandPicker()
             end
         else
             label:SetText(landPickerText(item.land))
-            btn:SetText("Select")
+            ftStyleButton(btn, "Select", FARM_UI.green)
             local capturedLand = item.land
             function btn:OnClick()
                 local ok, err = pcall(function() applyDoodadToLand(capturedLand) end)
@@ -3077,9 +3139,14 @@ openLandPickerWindow = function(info)
     pendingDoodadInfo = info
 
     if not landPickerWin then
-        landPickerWin = api.Interface:CreateWindow("tax_tracker_farm_land_picker", "Choose Land", 460, 360)
+        landPickerWin = api.Interface:CreateWindow("tax_tracker_farm_land_picker", "Choose Land", 500, 400)
         landPickerWin:RemoveAllAnchors()
         landPickerWin:AddAnchor("CENTER", "UIParent", 0, 0)
+        ftAddPanel(landPickerWin, "ft_land_picker_root", 12, 42, 476, 346, FARM_UI.panel)
+        ftAddPanel(landPickerWin, "ft_land_picker_header", 12, 42, 476, 28, FARM_UI.header)
+        ftAddPanel(landPickerWin, "ft_land_picker_action_panel", 18, 78, 464, 22, FARM_UI.groupDetails)
+        ftAddPanel(landPickerWin, "ft_land_picker_list_panel", 18, 104, 464, 240, FARM_UI.listPanel)
+        ftAddPanel(landPickerWin, "ft_land_picker_footer", 18, 352, 464, 28, FARM_UI.groupActions)
         landPickerWin:Show(false)
 
         function landPickerWin:OnHide()
@@ -3089,18 +3156,16 @@ openLandPickerWindow = function(info)
 
         local hintLbl = landPickerWin:CreateChildWidget("label", "tt_farm_land_hint", 0, true)
         hintLbl:SetText("Attach scanned timer to:")
-        hintLbl:SetAutoResize(true)
-        hintLbl:AddAnchor("TOPLEFT", landPickerWin, 18, 42)
-        if hintLbl.style then hintLbl.style:SetFontSize(FONT_SIZE.MIDDLE or 16) end
-        if ApplyTextColor and FONT_COLOR then ApplyTextColor(hintLbl, FONT_COLOR.DEFAULT) end
+        hintLbl:SetExtent(220, 20)
+        hintLbl:SetAutoResize(false)
+        hintLbl:AddAnchor("TOPLEFT", landPickerWin, 28, 47)
+        ftStyleLabel(hintLbl, FARM_UI.gold, 12, ALIGN.LEFT)
         hintLbl:Show(true)
         landPickerWin._hintLbl = hintLbl
 
         local btnPrev = landPickerWin:CreateChildWidget("button", "tt_farm_land_prev", 0, true)
-        if ApplyButtonSkin and BUTTON_BASIC then ApplyButtonSkin(btnPrev, BUTTON_BASIC.DEFAULT) end
-        btnPrev:SetExtent(80, 28)
-        btnPrev:AddAnchor("BOTTOMLEFT", landPickerWin, 18, -14)
-        btnPrev:SetText("Prev")
+        ftPlace(btnPrev, "BOTTOMLEFT", landPickerWin, nil, 28, -24, 72, 22)
+        ftStyleButton(btnPrev, "Prev", FARM_UI.button)
         function btnPrev:OnClick()
             landPickerPage = landPickerPage - 1
             rebuildLandPicker()
@@ -3110,19 +3175,16 @@ openLandPickerWindow = function(info)
         landPickerWin._prevBtn = btnPrev
 
         local pageLbl = landPickerWin:CreateChildWidget("label", "tt_farm_land_page", 0, true)
-        pageLbl:SetExtent(80, 28)
-        pageLbl:AddAnchor("BOTTOM", landPickerWin, 0, -14)
+        pageLbl:SetExtent(80, 22)
+        pageLbl:AddAnchor("BOTTOM", landPickerWin, 0, -24)
         pageLbl:SetText("1 / 1")
-        if pageLbl.style then pageLbl.style:SetAlign(ALIGN.CENTER) end
-        if ApplyTextColor and FONT_COLOR then ApplyTextColor(pageLbl, FONT_COLOR.DEFAULT) end
+        ftStyleLabel(pageLbl, FARM_UI.muted, 12, ALIGN.CENTER)
         pageLbl:Show(true)
         landPickerWin._pageLbl = pageLbl
 
         local btnNext = landPickerWin:CreateChildWidget("button", "tt_farm_land_next", 0, true)
-        if ApplyButtonSkin and BUTTON_BASIC then ApplyButtonSkin(btnNext, BUTTON_BASIC.DEFAULT) end
-        btnNext:SetExtent(80, 28)
-        btnNext:AddAnchor("BOTTOMRIGHT", landPickerWin, -18, -14)
-        btnNext:SetText("Next")
+        ftPlace(btnNext, "BOTTOMRIGHT", landPickerWin, nil, -28, -24, 72, 22)
+        ftStyleButton(btnNext, "Next", FARM_UI.button)
         function btnNext:OnClick()
             landPickerPage = landPickerPage + 1
             rebuildLandPicker()
@@ -3132,19 +3194,15 @@ openLandPickerWindow = function(info)
         landPickerWin._nextBtn = btnNext
 
         local btnCancel = landPickerWin:CreateChildWidget("button", "tt_farm_land_cancel", 0, true)
-        if ApplyButtonSkin and BUTTON_BASIC then ApplyButtonSkin(btnCancel, BUTTON_BASIC.DEFAULT) end
-        btnCancel:SetExtent(90, 26)
-        btnCancel:AddAnchor("TOPRIGHT", landPickerWin, -18, 38)
-        btnCancel:SetText("Cancel")
+        ftPlace(btnCancel, "TOPRIGHT", landPickerWin, nil, -28, 78, 82, 22)
+        ftStyleButton(btnCancel, "Cancel", FARM_UI.button)
         function btnCancel:OnClick() closeLandPickerWindow(true) end
         btnCancel:SetHandler("OnClick", btnCancel.OnClick)
         btnCancel:Show(true)
 
         local btnPlayerLocation = landPickerWin:CreateChildWidget("button", "tt_farm_land_player_location", 0, true)
-        if ApplyButtonSkin and BUTTON_BASIC then ApplyButtonSkin(btnPlayerLocation, BUTTON_BASIC.DEFAULT) end
-        btnPlayerLocation:SetExtent(170, 26)
-        btnPlayerLocation:AddAnchor("TOPRIGHT", landPickerWin, -116, 38)
-        btnPlayerLocation:SetText("Use Player Location")
+        ftPlace(btnPlayerLocation, "TOPRIGHT", landPickerWin, nil, -118, 78, 160, 22)
+        ftStyleButton(btnPlayerLocation, "Use Player Location", FARM_UI.buttonBlue)
         function btnPlayerLocation:OnClick()
             local ok, err = pcall(applyDoodadToPlayerLocation)
             if not ok then log("Player location farm error: " .. tostring(err)) end
@@ -3172,7 +3230,10 @@ local function ensureMainWindow()
     mainWin = api.Interface:CreateWindow("tax_tracker_farm_main", "Farm Tracker", MAIN_W, MAIN_H)
     mainWin:RemoveAllAnchors()
     mainWin:AddAnchor("CENTER", "UIParent", 0, 0)
-    addWindowTint(mainWin, 0.55)
+    ftAddPanel(mainWin, "ft_main_root", 12, 42, MAIN_W - 24, MAIN_H - 54, FARM_UI.panel)
+    ftAddPanel(mainWin, "ft_main_header_panel", 12, 42, MAIN_W - 24, 28, FARM_UI.header)
+    ftAddPanel(mainWin, "ft_main_list_panel", 18, 78, MAIN_W - 36, 316, FARM_UI.listPanel)
+    ftAddPanel(mainWin, "ft_main_actions_panel", 18, MAIN_H - 58, MAIN_W - 36, 34, FARM_UI.groupActions)
     mainWin:Show(false)
 
     function mainWin:OnHide()
@@ -3181,13 +3242,10 @@ local function ensureMainWindow()
     mainWin:SetHandler("OnHide", mainWin.OnHide)
 
     local hdrBar = mainWin:CreateChildWidget("emptywidget", "ft_hdr_bar", 0, true)
-    hdrBar:SetExtent(MAIN_W - 20, 28)
+    hdrBar:SetExtent(MAIN_W - 36, 28)
     hdrBar:RemoveAllAnchors()
-    hdrBar:AddAnchor("TOPLEFT", mainWin, 4, 42)
-    local hdrBg = hdrBar:CreateColorDrawable(0.08, 0.11, 0.16, 0.72, "background")
-    hdrBg:AddAnchor("TOPLEFT", hdrBar, 0, 0)
-    hdrBg:AddAnchor("BOTTOMRIGHT", hdrBar, 0, 0)
-    hdrBg:Show(true)
+    hdrBar:AddAnchor("TOPLEFT", mainWin, 18, 42)
+    ftAddDrawable(hdrBar, FARM_UI.header)
     hdrBar:Show(true)
 
     local function makeHdrLabel(name, txt, xOff, w)
@@ -3197,7 +3255,7 @@ local function ensureMainWindow()
         lbl:AddAnchor("LEFT", hdrBar, xOff, 0)
         lbl:SetText(txt)
         if lbl.style then lbl.style:SetAlign(ALIGN.LEFT); lbl.style:SetFontSize(FONT_SIZE.LARGE or 18) end
-        if ApplyTextColor and FONT_COLOR then ApplyTextColor(lbl, FONT_COLOR.DEFAULT) end
+        ftStyleLabel(lbl, FARM_UI.gold, 12, ALIGN.LEFT)
         lbl:Show(true)
     end
     makeHdrLabel("ft_hdr_name", "Farm Name",   COL_NAME_X, NAME_W)
@@ -3206,17 +3264,15 @@ local function ensureMainWindow()
 
     -- Add Land button
     local btnAdd = mainWin:CreateChildWidget("button", "ft_btn_add_farm", 0, true)
-    if ApplyButtonSkin and BUTTON_BASIC then ApplyButtonSkin(btnAdd, BUTTON_BASIC.DEFAULT) end
-    btnAdd:SetExtent(90, 28); btnAdd:RemoveAllAnchors()
-    btnAdd:AddAnchor("BOTTOMRIGHT", mainWin, -10, -10)
-    btnAdd:SetText("+ Add Land")
+    ftPlace(btnAdd, "BOTTOMRIGHT", mainWin, nil, -18, -29, 94, 26)
+    ftStyleButton(btnAdd, "+ Add Land", FARM_UI.green)
     function btnAdd:OnClick() openAddFarmPopup() end
     btnAdd:SetHandler("OnClick", btnAdd.OnClick); btnAdd:Show(true)
 
     -- Pagination
     local pageCtrl = W_CTRL.CreatePageControl("ft_pagectrl", mainWin, "tutorial")
     pageCtrl:RemoveAllAnchors()
-    pageCtrl:AddAnchor("BOTTOM", mainWin, 0, -10)
+    pageCtrl:AddAnchor("BOTTOM", mainWin, 0, -29)
     function pageCtrl:ProcOnPageChanged(pageIndex)
         currentPage = pageIndex
         rebuildFarmList()
@@ -3224,9 +3280,6 @@ local function ensureMainWindow()
     pageCtrl:Show(true)
     mainWin._pageCtrl = pageCtrl
 
-    local sep = mainWin:CreateColorDrawable(0.3, 0.3, 0.5, 0.5, "background")
-    sep:SetExtent(MAIN_W - 20, 1); sep:RemoveAllAnchors()
-    sep:AddAnchor("BOTTOMLEFT", mainWin, 10, -46); sep:Show(true)
 end
 
 local function openMainWindow()

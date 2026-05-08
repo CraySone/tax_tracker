@@ -5,6 +5,26 @@ local TimeSystem = require("tax_tracker/timesystem")
 
 local LandTable = {}
 
+local UI = {
+  white = {1, 1, 1, 1},
+  gold = {1, 0.84, 0, 1},
+  green = {0.12, 0.28, 0.15, 0.95},
+  red = {0.24, 0.09, 0.09, 0.95},
+  button = {0.11, 0.11, 0.13, 0.92},
+  buttonBlue = {0.14, 0.17, 0.22, 0.95},
+  header = {0.09, 0.09, 0.11, 0.95},
+  rowOdd = {0.08, 0.08, 0.095, 0.72},
+  rowEven = {0.12, 0.12, 0.135, 0.72}
+}
+
+local ACTION_RESET_WIDTH = 52
+
+-- Bumped on every LandTable.create call and baked into per-cell button IDs.
+-- Without this, cell:CreateChildWidget(stable_id) returns the engine's cached
+-- button from a prior render, carrying stale anchors that override SetExtent
+-- and made Reset render at varying widths row-to-row.
+local rebuildSeq = 0
+
 -- Helper function for colorizing labels (from original)
 local function colorizeLabel(label, r, g, b, a)
   if label and label.style and label.style.SetColor then
@@ -17,9 +37,99 @@ local function fmt2(n)
   return string.format("%.2f", n or 0)
 end
 
+local function setTextColor(widget, color)
+  if widget and widget.style and widget.style.SetColor and color then
+    widget.style:SetColor(color[1], color[2], color[3], color[4] or 1)
+  end
+end
+
+local function setDrawableColor(drawable, color)
+  if drawable and drawable.SetColor and color then
+    drawable:SetColor(color[1], color[2], color[3], color[4] or 0.92)
+  end
+end
+
+local function clearAnchors(widget)
+  if widget and widget.RemoveAllAnchors then
+    pcall(function() widget:RemoveAllAnchors() end)
+  end
+end
+
+local function styleFlatButton(button, text, tone)
+  if not button then return nil end
+  local width, height = 60, 24
+  pcall(function()
+    if button.GetWidth and button:GetWidth() and button:GetWidth() > 0 then width = button:GetWidth() end
+    if button.GetHeight and button:GetHeight() and button:GetHeight() > 0 then height = button:GetHeight() end
+  end)
+  if button.SetText then button:SetText("") end
+  if not button.cleanBg and button.CreateColorDrawable then
+    local c = tone or UI.button
+    local bg = button:CreateColorDrawable(c[1], c[2], c[3], c[4], "background")
+    bg:AddAnchor("TOPLEFT", button, 0, 0)
+    bg:AddAnchor("BOTTOMRIGHT", button, 0, 0)
+    bg:Show(true)
+    button.cleanBg = bg
+  end
+  clearAnchors(button.cleanBg)
+  if button.cleanBg then
+    button.cleanBg:AddAnchor("TOPLEFT", button, 0, 0)
+    button.cleanBg:AddAnchor("BOTTOMRIGHT", button, 0, 0)
+  end
+  if not button.cleanLabel then
+    local label = button:CreateChildWidget("label", "cleanLabel", 0, true)
+    if label.style then
+      if label.style.SetFontSize then label.style:SetFontSize(11) end
+      if label.style.SetAlign then label.style:SetAlign(ALIGN.CENTER) end
+      if label.style.SetColor then label.style:SetColor(1, 1, 1, 1) end
+    end
+    if label.EnablePick then label:EnablePick(false) end
+    label:Show(true)
+    button.cleanLabel = label
+  end
+  clearAnchors(button.cleanLabel)
+  button.cleanLabel:SetExtent(width, math.max(1, height - 2))
+  button.cleanLabel:AddAnchor("TOPLEFT", button, 0, 1)
+  button.cleanLabel:SetText(text or "")
+  setDrawableColor(button.cleanBg, tone or UI.button)
+  return button
+end
+
+local function placeButton(button, anchorPoint, relativeTo, relativePoint, x, y, width, height)
+  if not button then return nil end
+  clearAnchors(button)
+  button:SetExtent(width, height)
+  if relativePoint then
+    button:AddAnchor(anchorPoint, relativeTo, relativePoint, x, y)
+  else
+    button:AddAnchor(anchorPoint, relativeTo, x, y)
+  end
+  return button
+end
+
+local function styleLandCell(cell, land, visible)
+  if not cell then return end
+  if not visible then
+    if cell.landRowBg and cell.landRowBg.Show then cell.landRowBg:Show(false) end
+    return
+  end
+  if not cell.landRowBg and cell.CreateColorDrawable then
+    local bg = cell:CreateColorDrawable(UI.rowOdd[1], UI.rowOdd[2], UI.rowOdd[3], UI.rowOdd[4], "background")
+    bg:AddAnchor("TOPLEFT", cell, 0, 0)
+    bg:AddAnchor("BOTTOMRIGHT", cell, 0, 0)
+    bg:Show(true)
+    cell.landRowBg = bg
+  end
+  local idx = tonumber(land and land._uiRowIndex) or tonumber(land and land.id) or 1
+  setDrawableColor(cell.landRowBg, idx % 2 == 0 and UI.rowEven or UI.rowOdd)
+  if cell.landRowBg and cell.landRowBg.Show then cell.landRowBg:Show(true) end
+end
+
 -- Create traditional land table with ScrollListCtrl
 function LandTable.create(parent, id, width, landsData, onLandAction, onCountdownLabelCreated, customHeight, options)
   options = options or {}
+  rebuildSeq = rebuildSeq + 1
+  local seq = rebuildSeq
   Debug.info("LandTable", "=== LANDTABLE CREATE START ===")
   Debug.info("LandTable", "Creating traditional land table", {
     id = id, 
@@ -59,21 +169,22 @@ function LandTable.create(parent, id, width, landsData, onLandAction, onCountdow
   -- ~1440 available, leaving headroom.
   local columns = {
     { name="ID",        field="id",        width=40,
-      setFunc=function(s,i,set) if set then s:SetText(tostring(i.id)) end end },
+      setFunc=function(s,i,set) styleLandCell(s, i, set); if set then s:SetText(tostring(i.id)) end end },
     { name="Character", field="character", width=110,
-      setFunc=function(s,i,set) if set then s:SetText(i.character or "") end end },
-    { name="Name",      field="name",      width=150,
-      setFunc=function(s,i,set) if set then s:SetText(i.name or "") end end },
-    { name="Type",   field="landType",  width=170,
-      setFunc=function(s,i,set) if set then s:SetText(i.landType or "") end end },
+      setFunc=function(s,i,set) styleLandCell(s, i, set); if set then s:SetText(i.character or "") end end },
+    { name="Name",      field="name",      width=190,
+      setFunc=function(s,i,set) styleLandCell(s, i, set); if set then s:SetText(i.name or "") end end },
+    { name="Type",   field="landType",  width=210,
+      setFunc=function(s,i,set) styleLandCell(s, i, set); if set then s:SetText(i.landType or "") end end },
     { name="Base",   field="base",      width=60,
-      setFunc=function(s,i,set) if set then s:SetText(fmt2(i.base or 0)) end end },
+      setFunc=function(s,i,set) styleLandCell(s, i, set); if set then s:SetText(fmt2(i.base or 0)) end end },
     { name="Hostile",field="hostile",   width=60,
-      setFunc=function(s,i,set) if set then s:SetText(i.hostile and "Yes" or "No") end end },
+      setFunc=function(s,i,set) styleLandCell(s, i, set); if set then s:SetText(i.hostile and "Yes" or "No") end end },
     { name="Terr.",  field="territory", width=50,
-      setFunc=function(s,i,set) if set then s:SetText(i.territory and "Yes" or "No") end end },
+      setFunc=function(s,i,set) styleLandCell(s, i, set); if set then s:SetText(i.territory and "Yes" or "No") end end },
     { name="Exempt", field="taxExempt", width=60,
       setFunc=function(s,i,set) 
+        styleLandCell(s, i, set)
         if set then 
           local text = i.taxExempt and "Yes" or "No"
           s:SetText(text)
@@ -85,8 +196,9 @@ function LandTable.create(parent, id, width, landsData, onLandAction, onCountdow
           end
         end 
       end },
-    { name="Next Payment", field="nextPayment", width=280,
+    { name="Next Payment", field="nextPayment", width=260,
       setFunc=function(s,i,set)
+        styleLandCell(s, i, set)
         if not set then return end
         -- Keep timer data as-is (don't convert to number)
         local timerData = i.nextPayment
@@ -111,10 +223,11 @@ function LandTable.create(parent, id, width, landsData, onLandAction, onCountdow
         end
       end },
     { name="Tax",    field="tax",       width=80,
-      setFunc=function(s,i,set) if set then s:SetText(fmt2(i.tax or 0)) end end },
+      setFunc=function(s,i,set) styleLandCell(s, i, set); if set then s:SetText(fmt2(i.tax or 0)) end end },
 
-    { name="Actions", width=276, disableSort=true,
+    { name="Actions", width=296, disableSort=true,
       setFunc=function(sub,info,set)
+        styleLandCell(sub, info, set)
         if sub.map    then sub.map:Show(set)    end
         if sub.paid   then sub.paid:Show(set)   end
         if sub.unpaid then sub.unpaid:Show(set) end
@@ -124,10 +237,9 @@ function LandTable.create(parent, id, width, landsData, onLandAction, onCountdow
       end,
       layoutFunc=function(list,row,col,cell)
         -- Map button
-        local map = cell:CreateChildWidget("button", cell:GetId()..".map", 0, true)
-        map:AddAnchor("LEFT", cell, 2, 0)
+        local map = cell:CreateChildWidget("button", cell:GetId()..".map_"..seq, 0, true)
         api.Interface:ApplyButtonSkin(map, BUTTON_CONTENTS.MAP_OPEN)
-        map:SetExtent(24, 24)
+        placeButton(map, "LEFT", cell, nil, 2, 0, 24, 24)
         function map:OnClick()
           local d = list.GetRowData and list:GetRowData(row) or landsData[row]
           if not d then return end
@@ -148,9 +260,9 @@ function LandTable.create(parent, id, width, landsData, onLandAction, onCountdow
         cell.map = map
 
         -- Paid button
-        local paid = cell:CreateChildWidget("button", cell:GetId()..".paid", 0, true)
-        api.Interface:ApplyButtonSkin(paid, BUTTON_BASIC.DEFAULT)
-        paid:SetText("Paid"); paid:SetExtent(48, 28); paid:AddAnchor("LEFT", map, "RIGHT", 4, 0)
+        local paid = cell:CreateChildWidget("button", cell:GetId()..".paid_"..seq, 0, true)
+        placeButton(paid, "LEFT", map, "RIGHT", 4, 0, 48, 28)
+        styleFlatButton(paid, "Paid", UI.green)
         function paid:OnClick()
           local d = list.GetRowData and list:GetRowData(row) or landsData[row]
           if not d then 
@@ -198,9 +310,9 @@ function LandTable.create(parent, id, width, landsData, onLandAction, onCountdow
         cell.paid = paid
 
         -- Unpaid button
-        local unpaid = cell:CreateChildWidget("button", cell:GetId()..".unpaid", 0, true)
-        api.Interface:ApplyButtonSkin(unpaid, BUTTON_BASIC.DEFAULT)
-        unpaid:SetText("Unpaid"); unpaid:SetExtent(52, 28); unpaid:AddAnchor("LEFT", paid, "RIGHT", 4, 0)
+        local unpaid = cell:CreateChildWidget("button", cell:GetId()..".unpaid_"..seq, 0, true)
+        placeButton(unpaid, "LEFT", paid, "RIGHT", 4, 0, 52, 28)
+        styleFlatButton(unpaid, "Unpaid", UI.button)
         function unpaid:OnClick()
           local d = list.GetRowData and list:GetRowData(row) or landsData[row]
           if not d then
@@ -248,9 +360,9 @@ function LandTable.create(parent, id, width, landsData, onLandAction, onCountdow
         cell.unpaid = unpaid
 
         -- Edit button
-        local edit = cell:CreateChildWidget("button", cell:GetId()..".edit", 0, true)
-        api.Interface:ApplyButtonSkin(edit, BUTTON_BASIC.DEFAULT)
-        edit:SetText("Edit"); edit:SetExtent(42, 28); edit:AddAnchor("LEFT", unpaid, "RIGHT", 4, 0)
+        local edit = cell:CreateChildWidget("button", cell:GetId()..".edit_"..seq, 0, true)
+        placeButton(edit, "LEFT", unpaid, "RIGHT", 4, 0, 42, 28)
+        styleFlatButton(edit, "Edit", UI.buttonBlue)
         function edit:OnClick()
           local d = list.GetRowData and list:GetRowData(row) or landsData[row]
           if not d then
@@ -280,9 +392,9 @@ function LandTable.create(parent, id, width, landsData, onLandAction, onCountdow
         cell.edit = edit
 
         -- Delete button
-        local del = cell:CreateChildWidget("button", cell:GetId()..".del", 0, true)
-        api.Interface:ApplyButtonSkin(del, BUTTON_BASIC.DEFAULT)
-        del:SetText("Del"); del:SetExtent(38, 28); del:AddAnchor("LEFT", edit, "RIGHT", 4, 0)
+        local del = cell:CreateChildWidget("button", cell:GetId()..".del_"..seq, 0, true)
+        placeButton(del, "LEFT", edit, "RIGHT", 4, 0, 38, 28)
+        styleFlatButton(del, "Del", UI.red)
         function del:OnClick()
           local d = list.GetRowData and list:GetRowData(row) or landsData[row]
           if not d then
@@ -343,9 +455,9 @@ function LandTable.create(parent, id, width, landsData, onLandAction, onCountdow
         cell.del = del
 
         -- Reset Timer button
-        local reset = cell:CreateChildWidget("button", cell:GetId()..".reset", 0, true)
-        api.Interface:ApplyButtonSkin(reset, BUTTON_BASIC.DEFAULT)
-        reset:SetText("Reset"); reset:SetExtent(52, 28); reset:AddAnchor("LEFT", del, "RIGHT", 4, 0)
+        local reset = cell:CreateChildWidget("button", cell:GetId()..".reset_"..seq, 0, true)
+        placeButton(reset, "LEFT", del, "RIGHT", 4, 0, ACTION_RESET_WIDTH, 28)
+        styleFlatButton(reset, "Reset", UI.button)
         function reset:OnClick()
           local d = list.GetRowData and list:GetRowData(row) or landsData[row]
           if not d then
@@ -441,6 +553,14 @@ function LandTable.create(parent, id, width, landsData, onLandAction, onCountdow
   if not scrollList then
     Debug.error("LandTable", "Failed to create ScrollListCtrl", {id = id})
     return nil
+  end
+
+  if scrollList.listCtrl and scrollList.listCtrl.column then
+    for i, columnButton in ipairs(scrollList.listCtrl.column) do
+      local column = columns[i]
+      styleFlatButton(columnButton, column and column.name or "", UI.header)
+      if columnButton.cleanLabel then setTextColor(columnButton.cleanLabel, UI.gold) end
+    end
   end
 
   -- Set the data

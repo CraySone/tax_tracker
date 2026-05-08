@@ -14,7 +14,159 @@ local ownedLabel = nil
 local bulkHostileWin = nil
 local bulkHostileRows = {}
 local bulkHostilePage = 1
+-- Bumped on every rebuild and baked into per-row widget names. CreateChildWidget
+-- with a stable name returns the engine's cached widget, which carries stale
+-- anchors and extents and made OFF buttons render at varying widths row-to-row.
+-- Unique names per rebuild guarantee fresh widgets with clean anchors.
+local bulkHostileRebuildSeq = 0
 local BULK_HOSTILE_ROWS = 9
+local BULK_HOSTILE_RIGHT_MARGIN = 12
+local BULK_HOSTILE_BUTTON_GAP = 8
+local BULK_HOSTILE_ON_WIDTH = 88
+local BULK_HOSTILE_OFF_WIDTH = 52
+
+local UI = {
+  white = {1, 1, 1, 1},
+  muted = {0.72, 0.72, 0.72, 1},
+  gold = {1, 0.84, 0, 1},
+  green = {0.12, 0.28, 0.15, 0.95},
+  red = {0.24, 0.09, 0.09, 0.95},
+  button = {0.11, 0.11, 0.13, 0.92},
+  panel = {0.05, 0.05, 0.06, 0.64},
+  listPanel = {0.05, 0.05, 0.06, 0.36},
+  header = {0.09, 0.09, 0.11, 0.95},
+  groupDetails = {0.07, 0.07, 0.08, 0.74},
+  groupStatus = {0.065, 0.065, 0.075, 0.74},
+  rowOdd = {0.08, 0.08, 0.095, 0.72},
+  rowEven = {0.12, 0.12, 0.135, 0.72}
+}
+
+local function setTextColor(widget, color)
+  if widget and widget.style and widget.style.SetColor and color then
+    widget.style:SetColor(color[1], color[2], color[3], color[4] or 1)
+  end
+end
+
+local function setDrawableColor(drawable, color)
+  if drawable and drawable.SetColor and color then
+    drawable:SetColor(color[1], color[2], color[3], color[4] or 0.92)
+  end
+end
+
+local function clearAnchors(widget)
+  if widget and widget.RemoveAllAnchors then
+    pcall(function() widget:RemoveAllAnchors() end)
+  end
+end
+
+local function destroyWidget(widget)
+  if not widget then return end
+  pcall(function()
+    if widget.Show then widget:Show(false) end
+    clearAnchors(widget)
+    if widget.Destroy then widget:Destroy() end
+  end)
+end
+
+local function placeButton(button, anchorPoint, relativeTo, relativePoint, x, y, width, height)
+  if not button then return nil end
+  clearAnchors(button)
+  button:SetExtent(width, height)
+  if relativePoint then
+    button:AddAnchor(anchorPoint, relativeTo, relativePoint, x, y)
+  else
+    button:AddAnchor(anchorPoint, relativeTo, x, y)
+  end
+  return button
+end
+
+local function addPanel(parent, id, x, y, width, height, color)
+  if not (parent and parent.CreateChildWidget) then return nil end
+  local c = color or UI.panel
+  local box = parent:CreateChildWidget("emptywidget", id, 0, true)
+  box:SetExtent(width, height)
+  box:AddAnchor("TOPLEFT", parent, x, y)
+  if box.EnableMouse then box:EnableMouse(false) end
+  local bg = box:CreateColorDrawable(c[1], c[2], c[3], c[4], "background")
+  bg:AddAnchor("TOPLEFT", box, 0, 0)
+  bg:AddAnchor("BOTTOMRIGHT", box, 0, 0)
+  bg:Show(true)
+  box:Show(true)
+  return box
+end
+
+local function addStretchPanel(parent, id, left, top, right, bottom, color)
+  if not (parent and parent.CreateChildWidget) then return nil end
+  local c = color or UI.panel
+  local box = parent:CreateChildWidget("emptywidget", id, 0, true)
+  box:SetExtent(1, 1)
+  box:AddAnchor("TOPLEFT", parent, left, top)
+  box:AddAnchor("BOTTOMRIGHT", parent, -right, -bottom)
+  if box.EnableMouse then box:EnableMouse(false) end
+  local bg = box:CreateColorDrawable(c[1], c[2], c[3], c[4], "background")
+  bg:AddAnchor("TOPLEFT", box, 0, 0)
+  bg:AddAnchor("BOTTOMRIGHT", box, 0, 0)
+  bg:Show(true)
+  box:Show(true)
+  return box
+end
+
+local function styleFlatButton(button, text, tone)
+  if not button then return nil end
+  local width, height = 100, 24
+  pcall(function()
+    if button.GetWidth and button:GetWidth() and button:GetWidth() > 0 then width = button:GetWidth() end
+    if button.GetHeight and button:GetHeight() and button:GetHeight() > 0 then height = button:GetHeight() end
+  end)
+
+  local nativeSetText = button.SetText
+  if nativeSetText then nativeSetText(button, "") end
+
+  if not button.cleanBg and button.CreateColorDrawable then
+    local c = tone or UI.button
+    local bg = button:CreateColorDrawable(c[1], c[2], c[3], c[4], "background")
+    bg:AddAnchor("TOPLEFT", button, 0, 0)
+    bg:AddAnchor("BOTTOMRIGHT", button, 0, 0)
+    bg:Show(true)
+    button.cleanBg = bg
+  end
+  clearAnchors(button.cleanBg)
+  if button.cleanBg then
+    button.cleanBg:AddAnchor("TOPLEFT", button, 0, 0)
+    button.cleanBg:AddAnchor("BOTTOMRIGHT", button, 0, 0)
+  end
+
+  if not button.cleanLabel then
+    local label = button:CreateChildWidget("label", "cleanLabel", 0, true)
+    if label.style then
+      if label.style.SetFontSize then label.style:SetFontSize(11) end
+      if label.style.SetAlign then label.style:SetAlign(ALIGN.CENTER) end
+      if label.style.SetColor then label.style:SetColor(1, 1, 1, 1) end
+    end
+    if label.EnablePick then label:EnablePick(false) end
+    label:Show(true)
+    button.cleanLabel = label
+  end
+
+  function button:SetCleanText(nextText)
+    if self.cleanLabel then self.cleanLabel:SetText(nextText or "") end
+  end
+  function button:SetText(nextText)
+    self:SetCleanText(nextText)
+  end
+  function button:SetTone(nextTone)
+    setDrawableColor(self.cleanBg, nextTone or UI.button)
+  end
+
+  if button.cleanLabel then
+    clearAnchors(button.cleanLabel)
+    button.cleanLabel:SetExtent(width, math.max(1, height - 2))
+    button.cleanLabel:AddAnchor("TOPLEFT", button, 0, 1)
+  end
+  button:SetCleanText(text or "")
+  button:SetTone(tone or UI.button)
+  return button
+end
 
 -- Same ownership multiplier ladder as the editor's recompute(): the Nth
 -- non-tax-exempt building you own pays this multiplier in tax.
@@ -105,9 +257,10 @@ local function rebuildBulkHostileWindow()
   if not bulkHostileWin then return end
 
   for _, row in ipairs(bulkHostileRows) do
-    if row and row.Show then row:Show(false) end
+    destroyWidget(row)
   end
   bulkHostileRows = {}
+  bulkHostileRebuildSeq = bulkHostileRebuildSeq + 1
 
   local rows = collectZoneHostileRows()
   local totalPages = math.max(1, math.ceil(#rows / BULK_HOSTILE_ROWS))
@@ -121,11 +274,12 @@ local function rebuildBulkHostileWindow()
   if bulkHostileWin._nextBtn and bulkHostileWin._nextBtn.Enable then bulkHostileWin._nextBtn:Enable(bulkHostilePage < totalPages) end
 
   if #rows == 0 then
-    local empty = bulkHostileWin:CreateChildWidget("label", "bulk_hostile_empty", 0, true)
+    local empty = bulkHostileWin:CreateChildWidget("label", "bulk_hostile_empty_" .. bulkHostileRebuildSeq, 0, true)
     empty:SetText("No tracked lands found.")
     empty:SetExtent(400, 24)
-    empty:AddAnchor("TOPLEFT", bulkHostileWin, 18, 72)
-    if empty.style then empty.style:SetAlign(ALIGN.LEFT); empty.style:SetFontSize(FONT_SIZE.MIDDLE or 16) end
+    empty:AddAnchor("TOPLEFT", bulkHostileWin, 28, 120)
+    if empty.style then empty.style:SetAlign(ALIGN.LEFT); empty.style:SetFontSize(12) end
+    setTextColor(empty, UI.muted)
     empty:Show(true)
     table.insert(bulkHostileRows, empty)
     return
@@ -136,30 +290,31 @@ local function rebuildBulkHostileWindow()
   for idx = startIdx, endIdx do
     local item = rows[idx]
     local rowIndex = idx - startIdx + 1
-    local y = 72 + ((rowIndex - 1) * 31)
-    local row = bulkHostileWin:CreateChildWidget("emptywidget", "bulk_hostile_row_" .. tostring(rowIndex), 0, true)
+    local y = 116 + ((rowIndex - 1) * 31)
+    local nameSuffix = bulkHostileRebuildSeq .. "_" .. tostring(rowIndex)
+    local row = bulkHostileWin:CreateChildWidget("emptywidget", "bulk_hostile_row_" .. nameSuffix, 0, true)
     row:SetExtent(520, 28)
     row:AddAnchor("TOPLEFT", bulkHostileWin, 18, y)
     row:Show(true)
     table.insert(bulkHostileRows, row)
 
-    local bg = row:CreateColorDrawable(rowIndex % 2 == 0 and 0.08 or 0.02, rowIndex % 2 == 0 and 0.10 or 0.02, rowIndex % 2 == 0 and 0.13 or 0.02, rowIndex % 2 == 0 and 0.62 or 0.38, "background")
+    local rowTone = rowIndex % 2 == 0 and UI.rowEven or UI.rowOdd
+    local bg = row:CreateColorDrawable(rowTone[1], rowTone[2], rowTone[3], rowTone[4], "background")
     bg:AddAnchor("TOPLEFT", row, 0, 0)
     bg:AddAnchor("BOTTOMRIGHT", row, 0, 0)
     bg:Show(true)
 
-    local lbl = row:CreateChildWidget("label", "bulk_hostile_lbl_" .. tostring(rowIndex), 0, true)
+    local lbl = row:CreateChildWidget("label", "bulk_hostile_lbl_" .. nameSuffix, 0, true)
     lbl:SetText(string.format("%s  (%d land, %d hostile, %d exempt)", item.zoneName, item.total, item.hostile, item.exempt))
     lbl:SetExtent(330, 24)
     lbl:AddAnchor("LEFT", row, 8, 0)
-    if lbl.style then lbl.style:SetAlign(ALIGN.LEFT); lbl.style:SetFontSize(FONT_SIZE.SMALL or 14) end
+    if lbl.style then lbl.style:SetAlign(ALIGN.LEFT); lbl.style:SetFontSize(12) end
+    setTextColor(lbl, UI.white)
     lbl:Show(true)
 
-    local btnOn = row:CreateChildWidget("button", "bulk_hostile_on_" .. tostring(rowIndex), 0, true)
-    if api.Interface.ApplyButtonSkin then api.Interface:ApplyButtonSkin(btnOn, BUTTON_BASIC.DEFAULT) end
-    btnOn:SetText("Hostile ON")
-    btnOn:SetExtent(82, 24)
-    btnOn:AddAnchor("RIGHT", row, -90, 0)
+    local btnOn = row:CreateChildWidget("button", "bulk_hostile_on_" .. nameSuffix, 0, true)
+    placeButton(btnOn, "RIGHT", row, nil, -(BULK_HOSTILE_RIGHT_MARGIN + BULK_HOSTILE_OFF_WIDTH + BULK_HOSTILE_BUTTON_GAP), 0, BULK_HOSTILE_ON_WIDTH, 22)
+    styleFlatButton(btnOn, "Hostile ON", UI.green)
     local capturedZoneOn = item.zoneName
     function btnOn:OnClick()
       local changed, skipped = SavedLandsWindow.setZoneHostileTax(capturedZoneOn, true)
@@ -169,11 +324,9 @@ local function rebuildBulkHostileWindow()
     btnOn:SetHandler("OnClick", btnOn.OnClick)
     btnOn:Show(true)
 
-    local btnOff = row:CreateChildWidget("button", "bulk_hostile_off_" .. tostring(rowIndex), 0, true)
-    if api.Interface.ApplyButtonSkin then api.Interface:ApplyButtonSkin(btnOff, BUTTON_BASIC.DEFAULT) end
-    btnOff:SetText("OFF")
-    btnOff:SetExtent(70, 24)
-    btnOff:AddAnchor("RIGHT", row, -12, 0)
+    local btnOff = row:CreateChildWidget("button", "bulk_hostile_off_" .. nameSuffix, 0, true)
+    placeButton(btnOff, "RIGHT", row, nil, -BULK_HOSTILE_RIGHT_MARGIN, 0, BULK_HOSTILE_OFF_WIDTH, 22)
+    styleFlatButton(btnOff, "OFF", UI.button)
     local capturedZoneOff = item.zoneName
     function btnOff:OnClick()
       local changed, skipped = SavedLandsWindow.setZoneHostileTax(capturedZoneOff, false)
@@ -187,36 +340,45 @@ end
 
 local function openBulkHostileWindow()
   if not bulkHostileWin then
-    bulkHostileWin = api.Interface:CreateWindow("TaxTrackerZoneHostile", "Zone Hostile Tax", 560, 410)
+    bulkHostileWin = api.Interface:CreateWindow("TaxTrackerZoneHostile", "Zone Hostile Tax", 560, 450)
     bulkHostileWin:AddAnchor("CENTER", "UIParent", 0, 0)
     bulkHostileWin:SetCloseOnEscape(true)
     bulkHostileWin:SetHandler("OnCloseByEsc", function() bulkHostileWin:Show(false) end)
 
-    local bg = bulkHostileWin:CreateColorDrawable(0, 0, 0, 0.60, "background")
-    bg:AddAnchor("TOPLEFT", bulkHostileWin, 8, 36)
-    bg:AddAnchor("BOTTOMRIGHT", bulkHostileWin, -8, -8)
-    bg:Show(true)
+    addPanel(bulkHostileWin, "bulkHostileRoot", 12, 42, 536, 384, UI.panel)
+    addPanel(bulkHostileWin, "bulkHostileHeader", 12, 42, 536, 26, UI.header)
+    addPanel(bulkHostileWin, "bulkHostileHintGroup", 18, 76, 524, 28, UI.groupStatus)
+    addPanel(bulkHostileWin, "bulkHostileListPanel", 18, 112, 524, 282, UI.listPanel)
+
+    local title = bulkHostileWin:CreateChildWidget("label", "bulk_hostile_title", 0, true)
+    title:SetText("Zone Hostile Tax")
+    title:SetExtent(260, 20)
+    title:AddAnchor("TOPLEFT", bulkHostileWin, 24, 47)
+    if title.style then title.style:SetAlign(ALIGN.LEFT); title.style:SetFontSize(13) end
+    setTextColor(title, UI.gold)
+    title:Show(true)
 
     local hint = bulkHostileWin:CreateChildWidget("label", "bulk_hostile_hint", 0, true)
     hint:SetText("Set hostile faction tax for all non-exempt tracked land in one zone.")
-    hint:SetExtent(520, 24)
-    hint:AddAnchor("TOPLEFT", bulkHostileWin, 18, 42)
-    if hint.style then hint.style:SetAlign(ALIGN.LEFT); hint.style:SetFontSize(FONT_SIZE.SMALL or 14) end
+    hint:SetExtent(500, 22)
+    hint:AddAnchor("TOPLEFT", bulkHostileWin, 28, 80)
+    if hint.style then hint.style:SetAlign(ALIGN.LEFT); hint.style:SetFontSize(12) end
+    setTextColor(hint, UI.muted)
     hint:Show(true)
 
     local status = bulkHostileWin:CreateChildWidget("label", "bulk_hostile_status", 0, true)
     status:SetText("")
     status:SetExtent(300, 24)
     status:AddAnchor("BOTTOM", bulkHostileWin, 0, -14)
-    if status.style then status.style:SetAlign(ALIGN.CENTER); status.style:SetFontSize(FONT_SIZE.SMALL or 14) end
+    if status.style then status.style:SetAlign(ALIGN.CENTER); status.style:SetFontSize(12) end
+    setTextColor(status, UI.muted)
     status:Show(true)
     bulkHostileWin._statusLbl = status
 
     local prevBtn = bulkHostileWin:CreateChildWidget("button", "bulk_hostile_prev", 0, true)
-    if api.Interface.ApplyButtonSkin then api.Interface:ApplyButtonSkin(prevBtn, BUTTON_BASIC.DEFAULT) end
-    prevBtn:SetText("Prev")
-    prevBtn:SetExtent(70, 24)
+    prevBtn:SetExtent(70, 22)
     prevBtn:AddAnchor("BOTTOMLEFT", bulkHostileWin, 18, -14)
+    styleFlatButton(prevBtn, "Prev", UI.button)
     function prevBtn:OnClick()
       bulkHostilePage = bulkHostilePage - 1
       rebuildBulkHostileWindow()
@@ -229,15 +391,15 @@ local function openBulkHostileWindow()
     pageLbl:SetText("1 / 1")
     pageLbl:SetExtent(80, 24)
     pageLbl:AddAnchor("BOTTOM", bulkHostileWin, 0, -42)
-    if pageLbl.style then pageLbl.style:SetAlign(ALIGN.CENTER); pageLbl.style:SetFontSize(FONT_SIZE.SMALL or 14) end
+    if pageLbl.style then pageLbl.style:SetAlign(ALIGN.CENTER); pageLbl.style:SetFontSize(12) end
+    setTextColor(pageLbl, UI.muted)
     pageLbl:Show(true)
     bulkHostileWin._pageLbl = pageLbl
 
     local nextBtn = bulkHostileWin:CreateChildWidget("button", "bulk_hostile_next", 0, true)
-    if api.Interface.ApplyButtonSkin then api.Interface:ApplyButtonSkin(nextBtn, BUTTON_BASIC.DEFAULT) end
-    nextBtn:SetText("Next")
-    nextBtn:SetExtent(70, 24)
+    nextBtn:SetExtent(70, 22)
     nextBtn:AddAnchor("BOTTOMRIGHT", bulkHostileWin, -18, -14)
+    styleFlatButton(nextBtn, "Next", UI.button)
     function nextBtn:OnClick()
       bulkHostilePage = bulkHostilePage + 1
       rebuildBulkHostileWindow()
@@ -294,16 +456,11 @@ function SavedLandsWindow.initialize(dataCallback)
         -- Timer registration removed - UpdateSystem handles all updates
         Debug.info("SavedLandsWindow", "Timer registration skipped - UpdateSystem handles all updates")
         
-        -- Add background tint
-        local bg = listWin:CreateChildWidget("textbox", "listBg", 0, true)
-        bg:AddAnchor("TOPLEFT", listWin, 0, 36)
-        bg:AddAnchor("BOTTOMRIGHT", listWin, 0, 0)
-        bg:SetText("")
-        if bg.style and bg.style.SetColor then
-            bg.style:SetColor(0, 0, 0, 0.60)
-        end
-        if bg.Enable then bg:Enable(false) end
-        bg:Show(true)
+        -- Add the same dark backwindow + header treatment used by the editor.
+        addStretchPanel(listWin, "savedLandsRootPanel", 12, 42, 12, 30, UI.panel)
+        addPanel(listWin, "savedLandsToolbarPanel", 20, 42, 1050, 38, UI.groupDetails)
+        addPanel(listWin, "savedLandsHeaderPanel", 12, 42, 1476, 26, UI.header)
+        addStretchPanel(listWin, "savedLandsListPanel", 20, 86, 20, 24, UI.listPanel)
         
         -- Create header buttons (Loans, Open Editor, Farm Tracker)
         CreateHeaderButtons()
@@ -314,9 +471,11 @@ function SavedLandsWindow.initialize(dataCallback)
         ownedLabel:SetExtent(180, 22)
         ownedLabel:AddAnchor("TOPRIGHT", listWin, -20, 46)
         ownedLabel:SetText("Owned: 0 (+0%)")
-        if ownedLabel.style and ownedLabel.style.SetAlign then
-            ownedLabel.style:SetAlign(ALIGN.RIGHT)
+        if ownedLabel.style then
+            if ownedLabel.style.SetAlign then ownedLabel.style:SetAlign(ALIGN.RIGHT) end
+            if ownedLabel.style.SetFontSize then ownedLabel.style:SetFontSize(12) end
         end
+        setTextColor(ownedLabel, UI.gold)
         listWin.ownedLabel = ownedLabel
         
         -- Create lands list using EXACT same approach as working version
@@ -338,12 +497,9 @@ end
 function CreateHeaderButtons()
     -- Loans button (left side)
     local loansBtn = listWin:CreateChildWidget("button", "loansBtn", 0, true)
-    if api.Interface.ApplyButtonSkin then
-        api.Interface:ApplyButtonSkin(loansBtn, BUTTON_BASIC.DEFAULT)
-    end
-    loansBtn:SetText("Loans")
     loansBtn:SetExtent(100, 28)
     loansBtn:AddAnchor("TOPLEFT", listWin, 20, 42)
+    styleFlatButton(loansBtn, "Loans", UI.button)
     
     function loansBtn:OnClick()
         Debug.info("SavedLandsWindow", "Loans button clicked")
@@ -362,12 +518,9 @@ function CreateHeaderButtons()
     
     -- "Open Editor" button next to Loans button  
     local openEditorBtn = listWin:CreateChildWidget("button", "openEditorBtn", 0, true)
-    if api.Interface.ApplyButtonSkin then
-        api.Interface:ApplyButtonSkin(openEditorBtn, BUTTON_BASIC.DEFAULT)
-    end
-    openEditorBtn:SetText("Open Editor")
     openEditorBtn:SetExtent(130, 28)
     openEditorBtn:AddAnchor("LEFT", loansBtn, "RIGHT", 10, 0)
+    styleFlatButton(openEditorBtn, "Open Editor", UI.green)
     
     function openEditorBtn:OnClick()
         Debug.info("SavedLandsWindow", "Open Editor button clicked")
@@ -394,12 +547,9 @@ function CreateHeaderButtons()
     
     -- "Farm Tracker" button next to Open Editor button
     local farmTrackerBtn = listWin:CreateChildWidget("button", "farmTrackerBtn", 0, true)
-    if api.Interface.ApplyButtonSkin then
-        api.Interface:ApplyButtonSkin(farmTrackerBtn, BUTTON_BASIC.DEFAULT)
-    end
-    farmTrackerBtn:SetText("Farm Tracker")
     farmTrackerBtn:SetExtent(130, 28)
     farmTrackerBtn:AddAnchor("LEFT", openEditorBtn, "RIGHT", 10, 0)
+    styleFlatButton(farmTrackerBtn, "Farm Tracker", UI.button)
     
     function farmTrackerBtn:OnClick()
         Debug.info("SavedLandsWindow", "Farm Tracker button clicked")
@@ -416,16 +566,15 @@ function CreateHeaderButtons()
 
     -- "Autotracker" toggle next to Farm Tracker
     local autotrackerBtn = listWin:CreateChildWidget("button", "autotrackerBtn", 0, true)
-    if api.Interface.ApplyButtonSkin then
-        api.Interface:ApplyButtonSkin(autotrackerBtn, BUTTON_BASIC.DEFAULT)
-    end
     autotrackerBtn:SetExtent(150, 28)
     autotrackerBtn:AddAnchor("LEFT", farmTrackerBtn, "RIGHT", 10, 0)
+    styleFlatButton(autotrackerBtn, "Autotracker: OFF", UI.button)
 
     local function refreshAutotrackerText()
         local farmSuccess, FarmSystem = pcall(require, "tax_tracker/farmsystem")
         local enabled = farmSuccess and FarmSystem and FarmSystem.isAutotrackerEnabled and FarmSystem.isAutotrackerEnabled()
         autotrackerBtn:SetText(enabled and "Autotracker: ON" or "Autotracker: OFF")
+        if autotrackerBtn.SetTone then autotrackerBtn:SetTone(enabled and UI.green or UI.button) end
     end
     refreshAutotrackerText()
     do
@@ -451,12 +600,9 @@ function CreateHeaderButtons()
     -- "No Timer" without touching the lands themselves. Useful after a
     -- big tax-day clean-up or for re-syncing all timers from scratch.
     local resetAllBtn = listWin:CreateChildWidget("button", "resetAllBtn", 0, true)
-    if api.Interface.ApplyButtonSkin then
-        api.Interface:ApplyButtonSkin(resetAllBtn, BUTTON_BASIC.DEFAULT)
-    end
-    resetAllBtn:SetText("Reset All Timers")
     resetAllBtn:SetExtent(150, 28)
     resetAllBtn:AddAnchor("LEFT", autotrackerBtn, "RIGHT", 10, 0)
+    styleFlatButton(resetAllBtn, "Reset All Timers", UI.button)
 
     function resetAllBtn:OnClick()
         SavedLandsWindow.resetAllTimers()
@@ -464,12 +610,9 @@ function CreateHeaderButtons()
     resetAllBtn:SetHandler("OnClick", resetAllBtn.OnClick)
 
     local zoneHostileBtn = listWin:CreateChildWidget("button", "zoneHostileBtn", 0, true)
-    if api.Interface.ApplyButtonSkin then
-        api.Interface:ApplyButtonSkin(zoneHostileBtn, BUTTON_BASIC.DEFAULT)
-    end
-    zoneHostileBtn:SetText("Zone Hostile")
     zoneHostileBtn:SetExtent(140, 28)
     zoneHostileBtn:AddAnchor("LEFT", resetAllBtn, "RIGHT", 10, 0)
+    styleFlatButton(zoneHostileBtn, "Zone Hostile", UI.button)
 
     function zoneHostileBtn:OnClick()
         openBulkHostileWindow()
@@ -629,7 +772,7 @@ function CreateLandsList()
   buildHierarchicalData()
   
   -- Create hybrid list with embedded tables (fill window)
-  itemList = HybridList.create(listWin, "hybridLandsList", 1460, hierarchicalData,
+  itemList = HybridList.create(listWin, "hybridLandsList", 1480, hierarchicalData,
     function(value, displayName, landData)
       Debug.info("SavedLandsWindow", "Land item selected", {value = value, name = displayName})
       if landData then
@@ -707,10 +850,10 @@ function CreateLandsList()
   taxSumLabel:SetExtent(200, 22)
   taxSumLabel:AddAnchor("TOPRIGHT", listWin, -220, 46)
   if taxSumLabel.style then
-    if taxSumLabel.style.SetFontSize then taxSumLabel.style:SetFontSize(FONT_SIZE.LARGE) end
-    if taxSumLabel.style.SetColor    then taxSumLabel.style:SetColor(1.0, 0.85, 0.0, 1.0) end
+    if taxSumLabel.style.SetFontSize then taxSumLabel.style:SetFontSize(12) end
     if taxSumLabel.style.SetAlign    then taxSumLabel.style:SetAlign(ALIGN.RIGHT) end
   end
+  setTextColor(taxSumLabel, UI.gold)
   listWin.taxSumLabel = taxSumLabel
   
   local function updateTaxSum()

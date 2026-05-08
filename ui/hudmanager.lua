@@ -15,8 +15,8 @@ local hudBtn = nil
 local isInitialized = false
 local currentCallback = nil
 
-local HUD_W = 120
-local HUD_H = 32
+local HUD_W = 112
+local HUD_H = 30
 local REGISTRY_KEY = "__TAX_TRACKER_ARISE_HUD"
 local fallbackRegistry = nil
 
@@ -153,16 +153,23 @@ function HUDManager.initialize(toggleCallback)
     
     Debug.info("HUDManager", "Created HUD widgets", {hudRoot = hudRoot ~= nil, hudBtn = hudBtn ~= nil})
 
-    -- Apply button skin
-    if api.Interface.ApplyButtonSkin then
-      api.Interface:ApplyButtonSkin(hudBtn, BUTTON_BASIC.DEFAULT)
-    end
-
     hudBtn:SetExtent(HUD_W, HUD_H)
-    hudBtn:SetText("Arise")
-    if hudBtn.style and hudBtn.style.SetFontSize then 
-      hudBtn.style:SetFontSize(13) 
+    hudBtn:SetText("")
+    hudBtn._bg = hudBtn:CreateColorDrawable(0.11, 0.11, 0.13, 0.92, "background")
+    hudBtn._bg:AddAnchor("TOPLEFT", hudBtn, 0, 0)
+    hudBtn._bg:AddAnchor("BOTTOMRIGHT", hudBtn, 0, 0)
+    hudBtn._bg:Show(true)
+    hudBtn._label = hudBtn:CreateChildWidget("label", "hudToggleBtnLabel", 0, true)
+    hudBtn._label:SetText("Arise")
+    hudBtn._label:SetExtent(HUD_W, HUD_H - 2)
+    hudBtn._label:AddAnchor("TOPLEFT", hudBtn, 0, 1)
+    if hudBtn._label.style then
+      if hudBtn._label.style.SetFontSize then hudBtn._label.style:SetFontSize(12) end
+      if hudBtn._label.style.SetAlign then hudBtn._label.style:SetAlign(ALIGN.CENTER) end
+      if hudBtn._label.style.SetColor then hudBtn._label.style:SetColor(1, 1, 1, 1) end
     end
+    if hudBtn._label.EnablePick then hudBtn._label:EnablePick(false) end
+    hudBtn._label:Show(true)
     hudBtn:AddAnchor("TOPLEFT", hudRoot, "TOPLEFT", 0, 0)
     if hudBtn.EnableDrag then hudBtn:EnableDrag(true) end
     function hudBtn:OnDragStart()

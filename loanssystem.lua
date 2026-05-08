@@ -21,6 +21,8 @@ local loansData = {}
 local loansSeq = 0
 local loansWin = nil
 local loansItemList = nil
+local loansPage = 1
+local LOANS_PER_PAGE = 15
 local noteWin = nil          -- Reused note dialog (one instance for all loans)
 local noteEdit = nil         -- The editbox inside the note dialog
 local noteCurrentLoanId = 0  -- Which loan the dialog is currently editing
@@ -53,15 +55,198 @@ end
 -- Settings key for persistence
 local LOANS_SETTINGS_KEY = "tax_tracker_loans"
 
+local UI = {
+  WHITE = {1, 1, 1, 1},
+  MUTED = {0.72, 0.72, 0.72, 1},
+  GOLD = {1, 0.84, 0, 1},
+  GREEN = {0.12, 0.28, 0.15, 0.95},
+  RED = {0.24, 0.09, 0.09, 0.95},
+  BUTTON = {0.16, 0.16, 0.18, 0.92},
+  BUTTON_DARK = {0.11, 0.11, 0.13, 0.92},
+  BUTTON_BLUE = {0.14, 0.17, 0.22, 0.95},
+  PANEL = {0.05, 0.05, 0.06, 0.55},
+  PANEL_DARK = {0.035, 0.035, 0.045, 0.68},
+  INPUT = {0.11, 0.11, 0.125, 0.72},
+  LIST_PANEL = {0.05, 0.05, 0.06, 0.36},
+  HEADER = {0.09, 0.09, 0.11, 0.95},
+  GROUP_DETAILS = {0.07, 0.07, 0.08, 0.74},
+  GROUP_MONEY = {0.055, 0.06, 0.07, 0.74},
+  GROUP_STATUS = {0.065, 0.065, 0.075, 0.74},
+  ROW_ODD = {0.08, 0.08, 0.095, 0.72},
+  ROW_EVEN = {0.12, 0.12, 0.135, 0.72},
+  STATUS = {0.04, 0.04, 0.05, 0.72}
+}
+
+local function setTextColor(widget, color)
+  if widget and widget.style and widget.style.SetColor and color then
+    widget.style:SetColor(color[1], color[2], color[3], color[4] or 1)
+  end
+end
+
+local function setDrawableColor(drawable, color)
+  if drawable and drawable.SetColor and color then
+    drawable:SetColor(color[1], color[2], color[3], color[4] or 0.92)
+  end
+end
+
+local function addColorPanel(parent, id, x, y, width, height, color)
+  if not (parent and parent.CreateColorDrawable) then return nil end
+  local c = color or UI.PANEL
+  local bg = parent:CreateColorDrawable(c[1], c[2], c[3], c[4] or 0.55, "background")
+  bg:SetExtent(width, height)
+  bg:AddAnchor("TOPLEFT", parent, x, y)
+  bg:Show(true)
+  return bg
+end
+
+local function addWidgetPanel(parent, id, x, y, width, height, color)
+  if not (parent and parent.CreateChildWidget) then return nil end
+  local c = color or UI.PANEL
+  local panel = parent:CreateChildWidget("emptywidget", id, 0, true)
+  panel:SetExtent(width, height)
+  panel:AddAnchor("TOPLEFT", parent, x, y)
+  if panel.EnableMouse then panel:EnableMouse(false) end
+  local bg = panel:CreateColorDrawable(c[1], c[2], c[3], c[4] or 0.55, "background")
+  bg:AddAnchor("TOPLEFT", panel, 0, 0)
+  bg:AddAnchor("BOTTOMRIGHT", panel, 0, 0)
+  bg:Show(true)
+  panel:Show(true)
+  return panel
+end
+
+local function addInputBackplate(parent, id, x, y, width, height)
+  return addColorPanel(parent, id, x - 2, y - 1, width + 4, height + 2, UI.INPUT)
+end
+
+local function styleEditBox(editbox, muted)
+  if not editbox then return end
+  if editbox.style then
+    if editbox.style.SetFontSize then editbox.style:SetFontSize(12) end
+    if editbox.style.SetAlign then editbox.style:SetAlign(ALIGN.LEFT) end
+    if editbox.style.SetColor then
+      if muted then
+        editbox.style:SetColor(UI.MUTED[1], UI.MUTED[2], UI.MUTED[3], UI.MUTED[4])
+      else
+        editbox.style:SetColor(UI.WHITE[1], UI.WHITE[2], UI.WHITE[3], UI.WHITE[4])
+      end
+    end
+  end
+end
+
+local function getLoanPageCount()
+  local count = #loansData
+  if count <= 0 then return 1 end
+  return math.ceil(count / LOANS_PER_PAGE)
+end
+
+local function clampLoanPage(page)
+  local maxPage = getLoanPageCount()
+  page = tonumber(page) or 1
+  if page < 1 then return 1 end
+  if page > maxPage then return maxPage end
+  return page
+end
+
+local function addSectionTitle(parent, id, text, x, y, width)
+  if not parent then return nil end
+  local title = parent:CreateChildWidget("label", id, 0, true)
+  title:SetText(text or "")
+  title:SetExtent(width or 200, 18)
+  title:AddAnchor("TOPLEFT", parent, x, y)
+  if title.style then
+    title.style:SetFontSize(13)
+    if title.style.SetAlign then title.style:SetAlign(ALIGN.LEFT) end
+  end
+  setTextColor(title, UI.GOLD)
+  title:Show(true)
+  return title
+end
+
+local function styleLoanCell(cell, loan, visible)
+  if not cell then return end
+  if not visible then
+    if cell.loanRowBg and cell.loanRowBg.Show then cell.loanRowBg:Show(false) end
+    return
+  end
+
+  if not cell.loanRowBg and cell.CreateColorDrawable then
+    local bg = cell:CreateColorDrawable(UI.ROW_ODD[1], UI.ROW_ODD[2], UI.ROW_ODD[3], UI.ROW_ODD[4], "background")
+    bg:AddAnchor("TOPLEFT", cell, 0, 0)
+    bg:AddAnchor("BOTTOMRIGHT", cell, 0, 0)
+    bg:Show(true)
+    cell.loanRowBg = bg
+  end
+
+  local index = tonumber(loan and loan._uiRowIndex) or tonumber(loan and loan.id) or 1
+  setDrawableColor(cell.loanRowBg, index % 2 == 0 and UI.ROW_EVEN or UI.ROW_ODD)
+  if cell.loanRowBg and cell.loanRowBg.Show then cell.loanRowBg:Show(true) end
+end
+
+local function styleFlatButton(button, text, tone)
+  if not button then return nil end
+  local width = 80
+  local height = 22
+  pcall(function()
+    if button.GetWidth and button:GetWidth() and button:GetWidth() > 0 then width = button:GetWidth() end
+    if button.GetHeight and button:GetHeight() and button:GetHeight() > 0 then height = button:GetHeight() end
+  end)
+
+  if button.SetText then button:SetText("") end
+
+  if not button.cleanBg and button.CreateColorDrawable then
+    local bg = button:CreateColorDrawable(UI.BUTTON[1], UI.BUTTON[2], UI.BUTTON[3], UI.BUTTON[4], "background")
+    bg:AddAnchor("TOPLEFT", button, 0, 0)
+    bg:AddAnchor("BOTTOMRIGHT", button, 0, 0)
+    bg:Show(true)
+    button.cleanBg = bg
+  end
+
+  if not button.cleanLabel then
+    local buttonId = "btn"
+    pcall(function()
+      if button.GetId then buttonId = tostring(button:GetId() or "btn") end
+    end)
+    local label = button:CreateChildWidget("label", buttonId .. ".cleanLabel", 0, true)
+    label:AddAnchor("TOPLEFT", button, 0, 1)
+    label:SetExtent(width, math.max(1, height - 2))
+    if label.style then
+      label.style:SetFontSize(11)
+      if label.style.SetAlign then label.style:SetAlign(ALIGN.CENTER) end
+    end
+    if label.EnablePick then label:EnablePick(false) end
+    label:Show(true)
+    button.cleanLabel = label
+  end
+
+  if button.cleanLabel then
+    button.cleanLabel:SetText(text or "")
+    pcall(function()
+      button.cleanLabel:SetExtent(width, math.max(1, height - 2))
+    end)
+    setTextColor(button.cleanLabel, UI.WHITE)
+  end
+
+  setDrawableColor(button.cleanBg, tone or UI.BUTTON)
+  return button
+end
+
 -- Helper to add tint background to windows
 local function addTint(win, id, alpha, topPad)
+  if not win then return nil end
   local pad = topPad or 36
-  local a   = alpha or 0.60
-  local bg  = win:CreateChildWidget("textbox", id or "bg", 0, true)
+  if win.CreateColorDrawable then
+    local bg = win:CreateColorDrawable(0.05, 0.05, 0.06, alpha or 0.55, "background")
+    bg:AddAnchor("TOPLEFT", win, 0, pad)
+    bg:AddAnchor("BOTTOMRIGHT", win, 0, 0)
+    bg:Show(true)
+    return bg
+  end
+  local a = alpha or 0.60
+  local bg = win:CreateChildWidget("textbox", id or "bg", 0, true)
   bg:AddAnchor("TOPLEFT", win, 0, pad)
   bg:AddAnchor("BOTTOMRIGHT", win, 0, 0)
   bg:SetText("")
-  if bg.style and bg.style.SetColor then bg.style:SetColor(0,0,0,a) end
+  if bg.style and bg.style.SetColor then bg.style:SetColor(0, 0, 0, a) end
   if bg.Enable then bg:Enable(false) end
   bg:Show(true)
   return bg
@@ -374,21 +559,24 @@ local function openLoanNoteDialog(loan)
       noteWin = api.Interface:CreateWindow("TaxTrackerLoanNote", "Loan Note", 0, 0)
       noteWin:SetExtent(W, H)
       noteWin:AddAnchor("CENTER", "UIParent", 0, 0)
-      addTint(noteWin, "noteBg", 0.85, 36)
+      addTint(noteWin, "noteBg", 0.55, 36)
+      addColorPanel(noteWin, "notePanel", 20, 46, W - 40, 156, UI.LIST_PANEL)
       noteWin:Show(false)
 
-      local hdr = noteWin:CreateChildWidget("label", "noteHeader", 0, true)
-      hdr:SetText("Note:")
-      hdr:AddAnchor("TOPLEFT", noteWin, 30, 50)
+      local hdr = addSectionTitle(noteWin, "noteHeader", "Note", 30, 54, W - 60)
 
       if W_CTRL and W_CTRL.CreateMultiLineEdit then
+        addInputBackplate(noteWin, "noteEditBg", 30, 75, W - 60, 120)
         noteEdit = W_CTRL.CreateMultiLineEdit("noteEdit", noteWin)
         noteEdit:SetExtent(W - 60, 120)
         noteEdit:AddAnchor("TOPLEFT", noteWin, 30, 75)
+        styleEditBox(noteEdit)
         pcall(function() noteEdit:SetMaxTextLength(2000) end)
       else
+        addInputBackplate(noteWin, "noteEditBg", 30, 75, W - 60, 120)
         noteEdit = gui.AddEditBox(noteWin, "noteEdit",
           "TOPLEFT", noteWin, 30, 75, W - 60, 120, 1024, "", nil)
+        styleEditBox(noteEdit)
         pcall(function()
           if noteEdit.style and noteEdit.style.SetAlign then
             noteEdit.style:SetAlign(ALIGN.TOPLEFT)
@@ -397,10 +585,9 @@ local function openLoanNoteDialog(loan)
       end
 
       local saveBtn = noteWin:CreateChildWidget("button", "noteSaveBtn", 0, true)
-      api.Interface:ApplyButtonSkin(saveBtn, BUTTON_BASIC.DEFAULT)
-      saveBtn:SetText("Save")
       saveBtn:SetExtent(100, 28)
       saveBtn:AddAnchor("BOTTOM", noteWin, -60, -20)
+      styleFlatButton(saveBtn, "Save", UI.GREEN)
       function saveBtn:OnClick()
         local txt = (noteEdit and noteEdit.GetText and noteEdit:GetText()) or ""
         LoansSystem.setLoanNote(noteCurrentLoanId, txt)
@@ -409,10 +596,9 @@ local function openLoanNoteDialog(loan)
       saveBtn:SetHandler("OnClick", saveBtn.OnClick)
 
       local cancelBtn = noteWin:CreateChildWidget("button", "noteCancelBtn", 0, true)
-      api.Interface:ApplyButtonSkin(cancelBtn, BUTTON_BASIC.DEFAULT)
-      cancelBtn:SetText("Cancel")
       cancelBtn:SetExtent(100, 28)
       cancelBtn:AddAnchor("BOTTOM", noteWin, 60, -20)
+      styleFlatButton(cancelBtn, "Cancel", UI.BUTTON_DARK)
       function cancelBtn:OnClick() noteWin:Show(false) end
       cancelBtn:SetHandler("OnClick", cancelBtn.OnClick)
     end)
@@ -449,19 +635,54 @@ function LoansSystem.buildLoansWindow(savedLandsList)
   -- Window proportions: reduced panel to give more space to Land column
   -- Land column widened to 290 (was 220), taking space from summary panel
   local WIN_W, WIN_H = 1490, 720
-  local LIST_W = 1200
-  local PANEL_W = 190
-  local PANEL_GAP = 55
+  local LIST_W = 1280
+  local PANEL_W = 170
+  local PANEL_GAP = 20
 
   loansWin = api.Interface:CreateWindow("TaxTrackerLoans", "Land Loans & Rentals", 0, 0)
   loansWin:SetExtent(WIN_W, WIN_H)
   loansWin:AddAnchor("CENTER", "UIParent", 0, 0)
-  addTint(loansWin, "loansBg", 0.65, 36)
+  addTint(loansWin, "loansBg", 0.55, 36)
   loansWin:Show(false)
 
   -- ==================== INPUT SECTION ====================
-  local inputY = 50  -- moved up since the old summary header bar was removed
+  local inputY = 78
   local COL_LABEL_W = 90
+  addWidgetPanel(loansWin, "loansInputBackWindow", 10, 42, WIN_W - 20, 122, UI.PANEL)
+  addWidgetPanel(loansWin, "loansInputHeader", 10, 42, WIN_W - 20, 26, UI.HEADER)
+  addSectionTitle(loansWin, "loansInputTitle", "Add Loan", 20, 47, 220)
+  local row2Y = inputY + 42
+  addWidgetPanel(loansWin, "loansFormGroup", 18, inputY - 8, WIN_W - 36, 84, UI.GROUP_DETAILS)
+
+  local function updateLoansPager()
+    if not loansWin then return end
+    loansPage = clampLoanPage(loansPage)
+    local totalPages = getLoanPageCount()
+    local total = #loansData
+    local startIndex = total > 0 and ((loansPage - 1) * LOANS_PER_PAGE) + 1 or 0
+    local endIndex = total > 0 and math.min(startIndex + LOANS_PER_PAGE - 1, total) or 0
+
+    if loansWin.loansPageLabel then
+      loansWin.loansPageLabel:SetText(string.format("Showing %d-%d of %d   Page %d/%d", startIndex, endIndex, total, loansPage, totalPages))
+    end
+    if loansWin.loansPrevBtn and loansWin.loansPrevBtn.Enable then loansWin.loansPrevBtn:Enable(loansPage > 1) end
+    if loansWin.loansNextBtn and loansWin.loansNextBtn.Enable then loansWin.loansNextBtn:Enable(loansPage < totalPages) end
+  end
+
+  local function refreshLoansList()
+    loansPage = clampLoanPage(loansPage)
+    for index, loan in ipairs(loansData) do
+      loan._uiRowIndex = index
+    end
+    if loansItemList then
+      loansItemList:UpdateData(loansData)
+      if loansItemList.RefreshPage then
+        loansItemList:RefreshPage(loansPage)
+      end
+    end
+    updateLoansPager()
+  end
+  LoansSystem.refreshLoansList = refreshLoansList
 
   local function placeLabel(lbl, x, y, w)
     if not lbl then return end
@@ -472,6 +693,7 @@ function LoansSystem.buildLoansWindow(savedLandsList)
       lbl.style:SetAlign(ALIGN.LEFT)
       lbl.style:SetFontSize(FONT_SIZE.MIDDLE or 16)
     end
+    setTextColor(lbl, UI.MUTED)
   end
 
   local function placeInput(input, x, y, w, h)
@@ -479,12 +701,14 @@ function LoansSystem.buildLoansWindow(savedLandsList)
     input:RemoveAllAnchors()
     input:SetExtent(w, h or 28)
     input:AddAnchor("TOPLEFT", loansWin, x, y)
+    styleEditBox(input)
   end
 
   -- Player Name input. Pass nil for labelText — AddEditBox builds an extra
   -- ghost label when that's set, which was rendering a stray "Player name"
   -- string overlapping the input.
   gui.AddLabel(loansWin, "playerLabel", "Player:", "TOPLEFT", loansWin, 20, inputY)
+  addInputBackplate(loansWin, "playerNameInputBg", 100, inputY, 180, 28)
   local playerNameInput = gui.AddEditBox(loansWin, "playerNameInput",
     "LEFT", loansWin.playerLabel, 80, 0, 150, 28, 50, "", nil)
   placeLabel(loansWin.playerLabel, 20, inputY + 2, 75)
@@ -493,16 +717,17 @@ function LoansSystem.buildLoansWindow(savedLandsList)
   
   -- Renting Since (auto-generated, read-only)
   gui.AddLabel(loansWin, "rentingSinceLabel", "Renting Since:", "LEFT", playerNameInput, 170, 0)
+  addInputBackplate(loansWin, "rentingSinceDisplayBg", 425, inputY, 130, 28)
   local rentingSinceDisplay = gui.AddEditBox(loansWin, "rentingSinceDisplay",
     "LEFT", loansWin.rentingSinceLabel, 100, 0, 120, 28, nil, "", nil)
   placeLabel(loansWin.rentingSinceLabel, 315, inputY + 2, 105)
   placeInput(rentingSinceDisplay, 425, inputY, 130, 28)
   if rentingSinceDisplay.SetReadOnly then rentingSinceDisplay:SetReadOnly(true) end
+  styleEditBox(rentingSinceDisplay, true)
   rentingSinceDisplay:SetText(getCurrentDateString())
   loansWin.rentingSinceDisplay = rentingSinceDisplay
   
   -- Land dropdown (populated from saved lands) - FIXED
-  local row2Y = inputY + 42
   gui.AddLabel(loansWin, "landLabel", "Land:", "TOPLEFT", loansWin, 20, row2Y + 2)
   placeLabel(loansWin.landLabel, 20, row2Y + 2, 75)
 
@@ -511,6 +736,17 @@ function LoansSystem.buildLoansWindow(savedLandsList)
   local selectedLandName = ""
   local selectedLandZone = ""
   local landDropdown = nil
+
+  local function resetSelectedLand()
+    selectedLandId = 0
+    selectedLandName = ""
+    selectedLandZone = ""
+    if landDropdown and landDropdown.SetCleanText then
+      landDropdown:SetCleanText("Select Land")
+    elseif landDropdown and landDropdown.SetText then
+      landDropdown:SetText("Select Land")
+    end
+  end
   
   local function createHierarchicalLandData()
     local hierarchicalData = {}
@@ -577,6 +813,19 @@ function LoansSystem.buildLoansWindow(savedLandsList)
     if landDropdown and landDropdown.UpdateData then
       local newData = createHierarchicalLandData()
       landDropdown:UpdateData(newData)
+
+      if selectedLandId ~= 0 then
+        local selectionStillAvailable = false
+        for _, item in ipairs(newData) do
+          if item.landData and item.landData.id == selectedLandId then
+            selectionStillAvailable = true
+            break
+          end
+        end
+        if not selectionStillAvailable then
+          resetSelectedLand()
+        end
+      end
     end
   end
   
@@ -604,7 +853,8 @@ function LoansSystem.buildLoansWindow(savedLandsList)
           selectedLandZone = landData.zoneName or landData.zone or ""
         end
       end,
-      300
+      300,
+      { cleanStyle = true }
     )
     landDropdown:RemoveAllAnchors()
     landDropdown:AddAnchor("TOPLEFT", loansWin, 100, row2Y)
@@ -612,10 +862,9 @@ function LoansSystem.buildLoansWindow(savedLandsList)
   else
     -- Fallback to simple dropdown if hierarchical not available
     landDropdown = loansWin:CreateChildWidget("button", "landDropdown", 0, true)
-    api.Interface:ApplyButtonSkin(landDropdown, BUTTON_BASIC.DEFAULT)
     landDropdown:SetExtent(500, 28)
     landDropdown:AddAnchor("TOPLEFT", loansWin, 100, row2Y)
-    landDropdown:SetText("Select Land ▾")
+    styleFlatButton(landDropdown, "Select Land", UI.BUTTON_DARK)
     loansWin.landDropdown = landDropdown
   end
   -- Rent Amount input - positioned inline with dropdown
@@ -625,28 +874,30 @@ function LoansSystem.buildLoansWindow(savedLandsList)
   gui.AddLabel(loansWin, "rentLabel", "Rent:", "TOPLEFT", loansWin, 625, row2Y + 2)
   placeLabel(loansWin.rentLabel, 625, row2Y + 2, 50)
   -- nil labelText avoids the AddEditBox ghost-label bug.
+  addInputBackplate(loansWin, "rentAmountInputBg", 680, row2Y, 110, 28)
   local rentAmountInput = gui.AddEditBox(loansWin, "rentAmountInput",
     "LEFT", loansWin.rentLabel, 50, 0, 100, 28, 10, "0", nil)
   placeInput(rentAmountInput, 680, row2Y, 110, 28)
   loansWin.rentAmountInput = rentAmountInput
   
   local addLoanBtn = loansWin:CreateChildWidget("button", "addLoanBtn", 0, true)
-  api.Interface:ApplyButtonSkin(addLoanBtn, BUTTON_BASIC.DEFAULT)
-  addLoanBtn:SetText("ADD LOAN")
   addLoanBtn:SetExtent(120, 32)
   addLoanBtn:AddAnchor("TOPLEFT", loansWin, 810, row2Y - 2)
+  styleFlatButton(addLoanBtn, "Add Loan", UI.GREEN)
   
   -- Status label for click-feedback. Anchored just below the list with
   -- a fixed width so long messages ("Added loan: VeryLongPlayerName -> ...")
   -- can't overflow past the right edge of the window.
+  addColorPanel(loansWin, "loansStatusPanel", 10, WIN_H - 36, LIST_W, 24, UI.STATUS)
   local statusLabel = loansWin:CreateChildWidget("label", "loansStatusLabel", 0, true)
   statusLabel:SetText("")
-  statusLabel:SetExtent(LIST_W, 22)
-  statusLabel:AddAnchor("BOTTOMLEFT", loansWin, 10, -12)
+  statusLabel:SetExtent(LIST_W - 16, 22)
+  statusLabel:AddAnchor("TOPLEFT", loansWin, 18, WIN_H - 35)
   if statusLabel.style then
-    statusLabel.style:SetFontSize(FONT_SIZE.MIDDLE)
+    statusLabel.style:SetFontSize(12)
     if statusLabel.style.SetAlign then statusLabel.style:SetAlign(ALIGN.LEFT) end
   end
+  setTextColor(statusLabel, UI.MUTED)
   loansWin.statusLabel = statusLabel
 
   local function setStatus(msg, r, g, b)
@@ -687,24 +938,19 @@ function LoansSystem.buildLoansWindow(savedLandsList)
     playerNameInput:SetText("")
     rentAmountInput:SetText("0")
     rentingSinceDisplay:SetText(getCurrentDateString())
-    if landDropdown and landDropdown.SetText then
-      landDropdown:SetText("Select Land")
-    end
+    resetSelectedLand()
 
-    if loansItemList then
-      loansItemList:UpdateData(loansData)
-      if LoansSystem.updateLoansSum then LoansSystem.updateLoansSum() end
-    end
+    refreshLoansList()
+    if LoansSystem.updateLoansSum then LoansSystem.updateLoansSum() end
     refreshLandDropdown()
     LoansSystem.saveLoans()
   end
   addLoanBtn:SetHandler("OnClick", addLoanBtn.OnClick)
-  -- Reset button in top right
+  -- Reset button in the same top section, aligned with the Add Loan controls.
   local resetBtn = loansWin:CreateChildWidget("button", "resetBtn", 0, true)
-  api.Interface:ApplyButtonSkin(resetBtn, BUTTON_BASIC.MINUS or BUTTON_BASIC.DEFAULT)
-  resetBtn:SetText("DEL ALL")
-  resetBtn:SetExtent(100, 32)
-  resetBtn:AddAnchor("TOPRIGHT", loansWin, -16, 50)
+  resetBtn:SetExtent(110, 32)
+  resetBtn:AddAnchor("TOPRIGHT", loansWin, -34, row2Y - 2)
+  styleFlatButton(resetBtn, "Del All", UI.RED)
   
   function resetBtn:OnClick()
     -- Was a no-op: pushed the existing loansData into the list without
@@ -714,9 +960,8 @@ function LoansSystem.buildLoansWindow(savedLandsList)
     for i = #loansData, 1, -1 do loansData[i] = nil end
     loansSeq = 0
 
-    if loansItemList then
-      loansItemList:UpdateData(loansData)
-    end
+    loansPage = 1
+    refreshLoansList()
     if LoansSystem.updateLoansSum then LoansSystem.updateLoansSum() end
     refreshLandDropdown()
     LoansSystem.saveLoans()
@@ -731,7 +976,9 @@ function LoansSystem.buildLoansWindow(savedLandsList)
   resetBtn:SetHandler("OnClick", resetBtn.OnClick)
 
   -- ==================== LIST SECTION ====================
-  local listY = 138  -- clear gap below the two-line input area
+  local listY = 194  -- clear gap below the two-line input area
+  addColorPanel(loansWin, "loansListPanel", 10, listY - 8, LIST_W, WIN_H - listY - 52, UI.LIST_PANEL)
+  addSectionTitle(loansWin, "loansListTitle", "Loans", 20, listY - 24, 200)
 
   -- rentingSince is now stored as a "YYYY-MM-DD" string at creation time,
   -- but legacy data may still be a numeric timestamp — handle both.
@@ -746,17 +993,18 @@ function LoansSystem.buildLoansWindow(savedLandsList)
   -- nothing was rendering and rows looked blank when added.
   local columns = {
     { name="ID", field="id", width=40,
-      setFunc=function(s,i,set) if set then s:SetText(tostring(i.id or "")) end end },
+      setFunc=function(s,i,set) styleLoanCell(s, i, set); if set then s:SetText(tostring(i.id or "")) end end },
     { name="Player", field="playerName", width=130,
-      setFunc=function(s,i,set) if set then s:SetText(i.playerName or "") end end },
-    { name="Land", field="landName", width=290,
-      setFunc=function(s,i,set) if set then s:SetText(i.landName or "") end end },
+      setFunc=function(s,i,set) styleLoanCell(s, i, set); if set then s:SetText(i.playerName or "") end end },
+    { name="Land", field="landName", width=320,
+      setFunc=function(s,i,set) styleLoanCell(s, i, set); if set then s:SetText(i.landName or "") end end },
     { name="Rent", field="rentAmount", width=70,
-      setFunc=function(s,i,set) if set then s:SetText(formatRent(i.rentAmount or 0)) end end },
+      setFunc=function(s,i,set) styleLoanCell(s, i, set); if set then s:SetText(formatRent(i.rentAmount or 0)) end end },
     { name="Since", field="rentingSince", width=110,
-      setFunc=function(s,i,set) if set then s:SetText(fmtSince(i.rentingSince)) end end },
-    { name="Next Due", field="nextRentDue", width=200,
+      setFunc=function(s,i,set) styleLoanCell(s, i, set); if set then s:SetText(fmtSince(i.rentingSince)) end end },
+    { name="Next Due", field="nextRentDue", width=220,
       setFunc=function(s, i, set)
+        styleLoanCell(s, i, set)
         if not set then return end
         if not i.nextRentDue or i.nextRentDue == 0 then
           s:SetText("Not Paid")
@@ -778,9 +1026,15 @@ function LoansSystem.buildLoansWindow(savedLandsList)
       end
     },
     { name="Total Paid", field="totalPaid", width=80,
-      setFunc=function(s,i,set) if set then s:SetText(formatRent(i.totalPaid or 0)) end end },
-    { name="Actions", width=340, disableSort=true,
+      setFunc=function(s,i,set) styleLoanCell(s, i, set); if set then s:SetText(formatRent(i.totalPaid or 0)) end end },
+    { name="Actions", width=278, disableSort=true,
       setFunc = function(s, i, set)
+        styleLoanCell(s, i, set)
+        s.loanData = set and i or nil
+        if s.paidBtn then s.paidBtn.loanData = s.loanData end
+        if s.overdueBtn then s.overdueBtn.loanData = s.loanData end
+        if s.noteBtn then s.noteBtn.loanData = s.loanData end
+        if s.delBtn then s.delBtn.loanData = s.loanData end
         if s.paidBtn  then s.paidBtn:Show(set)  end
         if s.overdueBtn then s.overdueBtn:Show(set) end
         if s.noteBtn  then s.noteBtn:Show(set)  end
@@ -789,18 +1043,18 @@ function LoansSystem.buildLoansWindow(savedLandsList)
       layoutFunc = function(list, row, col, cell)
         -- Paid button - FIXED with proper list reference
         local paidBtn = cell:CreateChildWidget("button", cell:GetId()..".paid", 0, true)
-        api.Interface:ApplyButtonSkin(paidBtn, BUTTON_BASIC.DEFAULT)
-        paidBtn:SetText("Paid")
-        paidBtn:SetExtent(70, 22)
+        paidBtn:SetExtent(64, 22)
         paidBtn:AddAnchor("LEFT", cell, 2, 0)
+        styleFlatButton(paidBtn, "Paid", UI.GREEN)
+        paidBtn.loanData = cell.loanData
         function paidBtn:OnClick()
 
           -- Use direct array access - more reliable than GetRowData
-          local loan = loansData[row]
+          local loan = self.loanData
           if loan then
             if LoansSystem.markRentPaid(loan.id) then
               -- Use global list reference instead of parameter
-              loansItemList:UpdateData(loansData)
+              refreshLoansList()
               if LoansSystem.updateLoansSum then LoansSystem.updateLoansSum() end
               LoansSystem.saveLoans()
             end
@@ -812,14 +1066,14 @@ function LoansSystem.buildLoansWindow(savedLandsList)
 
         -- Overdue button — marks the loan as overdue (countup timer like land tax)
         local overdueBtn = cell:CreateChildWidget("button", cell:GetId()..".overdue", 0, true)
-        api.Interface:ApplyButtonSkin(overdueBtn, BUTTON_BASIC.DEFAULT)
-        overdueBtn:SetText("Overdue")
-        overdueBtn:SetExtent(70, 22)
+        overdueBtn:SetExtent(64, 22)
         overdueBtn:AddAnchor("LEFT", paidBtn, "RIGHT", 6, 0)
+        styleFlatButton(overdueBtn, "Overdue", UI.BUTTON_DARK)
+        overdueBtn.loanData = cell.loanData
         function overdueBtn:OnClick()
-          local loan = loansData[row]
+          local loan = self.loanData
           if loan and LoansSystem.markOverdue(loan.id) then
-            loansItemList:UpdateData(loansData)
+            refreshLoansList()
             if LoansSystem.updateLoansSum then LoansSystem.updateLoansSum() end
             LoansSystem.saveLoans()
           end
@@ -830,12 +1084,12 @@ function LoansSystem.buildLoansWindow(savedLandsList)
         -- Note button — opens the shared note dialog populated with this
         -- loan's stored note (or empty for the first time).
         local noteBtn = cell:CreateChildWidget("button", cell:GetId()..".note", 0, true)
-        api.Interface:ApplyButtonSkin(noteBtn, BUTTON_BASIC.DEFAULT)
-        noteBtn:SetText("Note")
-        noteBtn:SetExtent(50, 22)
+        noteBtn:SetExtent(64, 22)
         noteBtn:AddAnchor("LEFT", overdueBtn, "RIGHT", 6, 0)
+        styleFlatButton(noteBtn, "Note", UI.BUTTON_BLUE)
+        noteBtn.loanData = cell.loanData
         function noteBtn:OnClick()
-          local loan = loansData[row]
+          local loan = self.loanData
           if loan then openLoanNoteDialog(loan) end
         end
         noteBtn:SetHandler("OnClick", noteBtn.OnClick)
@@ -843,19 +1097,19 @@ function LoansSystem.buildLoansWindow(savedLandsList)
 
         -- Delete button
         local delBtn = cell:CreateChildWidget("button", cell:GetId()..".del", 0, true)
-        api.Interface:ApplyButtonSkin(delBtn, BUTTON_BASIC.MINUS or BUTTON_BASIC.DEFAULT)
-        delBtn:SetText("DEL")
-        delBtn:SetExtent(70, 22)
+        delBtn:SetExtent(64, 22)
         delBtn:AddAnchor("LEFT", noteBtn, "RIGHT", 6, 0)
+        styleFlatButton(delBtn, "Del", UI.RED)
+        delBtn.loanData = cell.loanData
         
         function delBtn:OnClick()
           
           -- Use direct array access - more reliable than GetRowData  
-          local loan = loansData[row]
+          local loan = self.loanData
           if loan then
             if LoansSystem.deleteLoan(loan.id) then
               -- Use global list reference instead of parameter
-              loansItemList:UpdateData(loansData)
+              refreshLoansList()
               if LoansSystem.updateLoansSum then LoansSystem.updateLoansSum() end
               
               -- Refresh dropdown to show the now-available land
@@ -877,50 +1131,127 @@ function LoansSystem.buildLoansWindow(savedLandsList)
     }
   }
 
+  local function sortLoansByColumn(column, ascending)
+    if not column or not column.field then return end
+    local field = column.field
+    table.sort(loansData, function(a, b)
+      local av = a and a[field]
+      local bv = b and b[field]
+      if field == "rentAmount" or field == "totalPaid" or field == "id" or field == "nextRentDue" then
+        av = tonumber(av) or 0
+        bv = tonumber(bv) or 0
+      else
+        av = tostring(av or ""):lower()
+        bv = tostring(bv or ""):lower()
+      end
+      if ascending then return av < bv end
+      return av > bv
+    end)
+    loansPage = 1
+    refreshLoansList()
+  end
+
   loansItemList = gui.AddScrollList(
     loansWin, "loansItemList", columns,
     { point="TOPLEFT", relativeTo=loansWin, offsetX=10, offsetY=listY },
-    { width=LIST_W, height=WIN_H - listY - 30 },
-    { listType=3, rowCount=15, columnHeight=26, enableColumns=true }
+    { width=LIST_W, height=WIN_H - listY - 58 },
+    {
+      listType=3,
+      rowCount=LOANS_PER_PAGE,
+      columnHeight=26,
+      enableColumns=true,
+      hidePageControl=true,
+      pageSize=LOANS_PER_PAGE,
+      underlineColor={0.09, 0.09, 0.11, 0.95},
+      separatorColor={0.18, 0.18, 0.2, 0.55},
+      onSortChanged=function(colIndex, column, ascending)
+        sortLoansByColumn(column, ascending)
+      end
+    }
   )
 
-  loansItemList:UpdateData(loansData)
+  if loansItemList and loansItemList.listCtrl and loansItemList.listCtrl.column then
+    for i, columnButton in ipairs(loansItemList.listCtrl.column) do
+      local col = columns[i]
+      styleFlatButton(columnButton, col and col.name or "", UI.HEADER)
+      if columnButton.cleanLabel then
+        setTextColor(columnButton.cleanLabel, UI.GOLD)
+      end
+    end
+  end
+
+  local pageLabel = loansWin:CreateChildWidget("label", "loansPageLabel", 0, true)
+  pageLabel:SetText("Showing 0-0 of 0   Page 1/1")
+  pageLabel:SetExtent(330, 20)
+  pageLabel:AddAnchor("TOPRIGHT", loansWin, -(WIN_W - (10 + LIST_W)) - 76, listY - 25)
+  if pageLabel.style then
+    pageLabel.style:SetFontSize(11)
+    if pageLabel.style.SetAlign then pageLabel.style:SetAlign(ALIGN.RIGHT) end
+  end
+  setTextColor(pageLabel, UI.MUTED)
+  loansWin.loansPageLabel = pageLabel
+
+  local prevBtn = loansWin:CreateChildWidget("button", "loansPrevPageBtn", 0, true)
+  prevBtn:SetExtent(28, 20)
+  prevBtn:AddAnchor("TOPRIGHT", loansWin, -(WIN_W - (10 + LIST_W)) - 40, listY - 27)
+  styleFlatButton(prevBtn, "<", UI.BUTTON_DARK)
+  function prevBtn:OnClick()
+    loansPage = clampLoanPage(loansPage - 1)
+    refreshLoansList()
+  end
+  prevBtn:SetHandler("OnClick", prevBtn.OnClick)
+  loansWin.loansPrevBtn = prevBtn
+
+  local nextBtn = loansWin:CreateChildWidget("button", "loansNextPageBtn", 0, true)
+  nextBtn:SetExtent(28, 20)
+  nextBtn:AddAnchor("TOPRIGHT", loansWin, -(WIN_W - (10 + LIST_W)) - 8, listY - 27)
+  styleFlatButton(nextBtn, ">", UI.BUTTON_DARK)
+  function nextBtn:OnClick()
+    loansPage = clampLoanPage(loansPage + 1)
+    refreshLoansList()
+  end
+  nextBtn:SetHandler("OnClick", nextBtn.OnClick)
+  loansWin.loansNextBtn = nextBtn
+
+  refreshLoansList()
 
   -- ==================== RIGHT-SIDE SUMMARY PANEL ====================
   -- Replaces the old top-header strip and bottom-footer strip. All totals
   -- now live in one column to the right of the list.
   local panelBg = loansWin:CreateChildWidget("emptywidget", "panelBg", 0, true)
-  panelBg:SetExtent(PANEL_W, WIN_H - listY - 30)
+  panelBg:SetExtent(PANEL_W, WIN_H - listY - 58)
   panelBg:AddAnchor("TOPLEFT", loansWin, 10 + LIST_W + PANEL_GAP, listY)
-  if panelBg.SetColor then panelBg:SetColor(0.1, 0.15, 0.2, 0.85) end
+  addColorPanel(panelBg, "loansSummaryBg", 0, 0, PANEL_W, WIN_H - listY - 58, UI.PANEL)
+  addColorPanel(panelBg, "loansSummaryHeader", 0, 0, PANEL_W, 30, UI.HEADER)
+  addColorPanel(panelBg, "loansSummaryStatusGroup", 8, 42, PANEL_W - 16, 72, UI.GROUP_STATUS)
+  addColorPanel(panelBg, "loansSummaryIncomeGroup", 8, 122, PANEL_W - 16, 110, UI.GROUP_MONEY)
+  addColorPanel(panelBg, "loansSummaryOverdueGroup", 8, 236, PANEL_W - 16, 36, UI.GROUP_STATUS)
 
   local function panelLabel(name, text, yOff, color)
     local lbl = loansWin:CreateChildWidget("label", name, 0, true)
     lbl:SetText(text)
-    lbl:SetExtent(PANEL_W - 28, 24)
-    lbl:AddAnchor("TOPLEFT", panelBg, 16, yOff)
+      lbl:SetExtent(PANEL_W - 16, 24)
+    lbl:AddAnchor("TOPLEFT", panelBg, 10, yOff)
     if lbl.style then
-      lbl.style:SetFontSize(FONT_SIZE.MIDDLE or 16)
-      lbl.style:SetAlign(ALIGN.LEFT)
-      if color and lbl.style.SetColor then
-        lbl.style:SetColor(color[1], color[2], color[3], 1)
-      end
+      lbl.style:SetFontSize(12)
+      lbl.style:SetAlign(ALIGN.CENTER)
     end
+    setTextColor(lbl, color or UI.WHITE)
     return lbl
   end
 
   -- Header for the panel
-  local panelTitle = panelLabel("loansPanelTitle", "Summary", 14)
+  local panelTitle = panelLabel("loansPanelTitle", "Summary", 8, UI.GOLD)
 
   -- Defaults to engine color; only Total received (gold) and Overdue (red
   -- when positive) get explicit coloring. Weekly income removed — duplicated
   -- the "Weekly" line above it.
   local GOLD = {1.0, 0.85, 0.0}
-  loansWin.currentDateLabel  = panelLabel("currentDateLabel",  "Today: " .. getCurrentDateString(), 50)
-  loansWin.activeLoansLabel  = panelLabel("activeLoansLabel",  "Active loans: 0",                    90)
-  loansWin.totalRentLabel    = panelLabel("totalRentLabel",    "Monthly: 0g",                       125)
-  loansWin.weeklyHeaderLabel = panelLabel("weeklyHeaderLabel", "Weekly: 0g",                        160)
-  loansWin.loansSumLabel     = panelLabel("loansSumLabel",     "Total received: 0g",                200, GOLD)
+  loansWin.currentDateLabel  = panelLabel("currentDateLabel",  getCurrentDateString(), 50)
+  loansWin.activeLoansLabel  = panelLabel("activeLoansLabel",  "Active: 0",                         88)
+  loansWin.totalRentLabel    = panelLabel("totalRentLabel",    "Monthly: 0g",                       126)
+  loansWin.weeklyHeaderLabel = panelLabel("weeklyHeaderLabel", "Weekly: 0g",                        164)
+  loansWin.loansSumLabel     = panelLabel("loansSumLabel",     "Received: 0g",                      202, GOLD)
   loansWin.overdueLabel      = panelLabel("overdueLabel",      "Overdue: 0",                        240)
   
   -- Recompute all summary panel values. The previous version had empty
@@ -947,8 +1278,8 @@ function LoansSystem.buildLoansWindow(savedLandsList)
       end
     end
 
-    if loansWin.loansSumLabel    then loansWin.loansSumLabel:SetText("Total received: " .. formatRent(totalPaid)) end
-    if loansWin.activeLoansLabel then loansWin.activeLoansLabel:SetText("Active loans: " .. activeCount) end
+    if loansWin.loansSumLabel    then loansWin.loansSumLabel:SetText("Received: " .. formatRent(totalPaid)) end
+    if loansWin.activeLoansLabel then loansWin.activeLoansLabel:SetText("Active: " .. activeCount) end
     if loansWin.totalRentLabel    then loansWin.totalRentLabel:SetText("Monthly: " .. formatRent(weeklyIncome * 4)) end
     if loansWin.weeklyHeaderLabel then loansWin.weeklyHeaderLabel:SetText("Weekly: " .. formatRent(weeklyIncome)) end
 
@@ -964,7 +1295,7 @@ function LoansSystem.buildLoansWindow(savedLandsList)
     end
 
     if loansWin.currentDateLabel then
-      loansWin.currentDateLabel:SetText("Today: " .. getCurrentDateString())
+      loansWin.currentDateLabel:SetText(getCurrentDateString())
     end
   end
   
@@ -1040,7 +1371,11 @@ function LoansSystem.updateLoansList(savedLandsData)
       
       -- Only update list display if window is visible
       if loansWin:IsVisible() then
-        loansItemList:UpdateData(loansData)
+        if LoansSystem.refreshLoansList then
+          LoansSystem.refreshLoansList()
+        else
+          loansItemList:UpdateData(loansData)
+        end
         if LoansSystem.updateLoansSum then LoansSystem.updateLoansSum() end
         if loansItemList.UpdateView then
           loansItemList:UpdateView()

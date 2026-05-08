@@ -36,7 +36,7 @@ local ReminderWindow = require("tax_tracker/reminderwindow")
 
 local addon = {
   name    = "Tax Tracker",
-  version = "1.68-REMINDER",
+  version = "1.72.31-TAX-POPUP-UI",
   author  = "CraySone",
   desc    = "Land Barons Arise"
 }
@@ -268,7 +268,12 @@ local function Load()
     if configMenu and configMenu.michaelClient and configMenu.michaelClient.AddAddon then
       configMenu.michaelClient:AddAddon("TaxTracker", function()
         if FarmSystem and FarmSystem.openSettingsWindow then
-          FarmSystem.openSettingsWindow()
+          local ok, err = pcall(function()
+            FarmSystem.openSettingsWindow()
+          end)
+          if not ok then
+            Debug.warn("Main", "Farm settings window failed to open", {error = tostring(err)})
+          end
         end
       end)
     end
@@ -480,7 +485,12 @@ addon.OnLoad = Load
 addon.OnUnload = Unload
 addon.OnSettingToggle = function()
   if FarmSystem and FarmSystem.openSettingsWindow then
-    FarmSystem.openSettingsWindow()
+    local ok, err = pcall(function()
+      FarmSystem.openSettingsWindow()
+    end)
+    if not ok then
+      Debug.warn("Main", "Farm settings window failed to open from slash command", {error = tostring(err)})
+    end
   end
 end
 
