@@ -36,7 +36,7 @@ local ReminderWindow = require("tax_tracker/reminderwindow")
 
 local addon = {
   name    = "Tax Tracker",
-  version = "1.72.31-TAX-POPUP-UI",
+  version = "1.72.34-TRACKER-CLEAR",
   author  = "CraySone",
   desc    = "Land Barons Arise"
 }

@@ -34,6 +34,12 @@ Config.BASE_TAX = {
   ["Thatched Farmhouse (24x24)"]       = 15,
   ["Upgraded Farmhouse (24x24)"]       = 25,  -- upgraded thatched
   ["Mushroom House (24x24)"]           = 15,
+  -- 24x24 crafting variants — same base tax (25/wk). Townhouse and Manor
+  -- variants of each crafting type are merged into one entry since they
+  -- share tax and only differ cosmetically.
+  ["Apothecary's Manor / Townhouse (24x24)"] = 25,
+  ["Armorer's Manor / Townhouse (24x24)"]    = 25,
+  ["Tradesman's Manor / Townhouse (24x24)"]  = 25,
 
   -- Large houses (28x28)
   ["Fellowship Plaza (28x28)"]         = 25,
@@ -41,6 +47,10 @@ Config.BASE_TAX = {
   ["Chalet (28x28)"]                   = 25,
   ["Treehouse (28x28)"]                = 25,
   ["Raised Mushroom House (28x28)"]    = 25,
+  -- 28x28 crafting variants — one Villa variant per crafting type, base 50/wk
+  ["Apothecary's Villa (28x28)"]       = 50,
+  ["Armorer's Villa (28x28)"]          = 50,
+  ["Tradesman's Villa (28x28)"]        = 50,
 
   -- Mansions (44x44)
   ["Beanstalk House (44x44)"]          = 50,
@@ -73,6 +83,20 @@ Config.FALLBACK_ZONES = {
 -- Land type inference patterns
 Config.LAND_TYPE_PATTERNS = {
   -- Houses
+  -- Crafting variants must come BEFORE the generic townhouse/manor patterns
+  -- below — first match wins, so specific keywords need priority. Townhouse
+  -- and Manor variants of each crafting type resolve to the same merged
+  -- entry (same tax, cosmetic-only difference).
+  {"apothecary's townhouse", "Apothecary's Manor / Townhouse (24x24)"},
+  {"apothecary's manor",     "Apothecary's Manor / Townhouse (24x24)"},
+  {"armorer's townhouse",    "Armorer's Manor / Townhouse (24x24)"},
+  {"armorer's manor",        "Armorer's Manor / Townhouse (24x24)"},
+  {"tradesman's townhouse",  "Tradesman's Manor / Townhouse (24x24)"},
+  {"tradesman's manor",      "Tradesman's Manor / Townhouse (24x24)"},
+  -- 28x28 crafting variants (Villa)
+  {"apothecary's villa",     "Apothecary's Villa (28x28)"},
+  {"armorer's villa",        "Armorer's Villa (28x28)"},
+  {"tradesman's villa",      "Tradesman's Villa (28x28)"},
   {"cottage", "Cottage (16x16)"},
   {"townhouse", "Townhouse (24x24)"},
   {"manor", "Manor (28x28)"},

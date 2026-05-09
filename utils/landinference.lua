@@ -53,9 +53,10 @@ function LandInference.categorize(landType)
   
   if lower:find("garden") or lower:find("farm") or lower:find("aquafarm") or lower:find("gazebo") then
     return "Farm"
-  elseif lower:find("cottage") or lower:find("townhouse") or lower:find("manor") or 
-         lower:find("chalet") or lower:find("treehouse") or lower:find("farmhouse") or 
-         lower:find("mansion") or lower:find("beanstalk") or lower:find("mushroom") then
+  elseif lower:find("cottage") or lower:find("townhouse") or lower:find("manor") or
+         lower:find("chalet") or lower:find("treehouse") or lower:find("farmhouse") or
+         lower:find("mansion") or lower:find("beanstalk") or lower:find("mushroom") or
+         lower:find("villa") then
     return "House"
   elseif lower:find("silo") or lower:find("storage") or lower:find("workbench") then
     return "Storage"

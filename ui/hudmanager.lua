@@ -245,6 +245,15 @@ function HUDManager.isVisible()
   return hudRoot and hudRoot:IsVisible() or false
 end
 
+-- Invoke the toggle callback registered at initialize() time. Lets external
+-- callers (e.g. the FarmSystem actions bar) trigger the same "open saved
+-- lands window" action that clicking the standalone Arise button would.
+function HUDManager.invokeToggle()
+  if currentCallback then
+    pcall(currentCallback)
+  end
+end
+
 -- Cleanup - RESET SINGLETON STATE
 function HUDManager.cleanup()
   hideAndDestroy(hudBtn)

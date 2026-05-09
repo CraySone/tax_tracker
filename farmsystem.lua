@@ -73,9 +73,39 @@ local spotListWin = nil
 local spotListRows = {}
 local spotListPage = 1
 local SPOT_LIST_ROWS = 9
-local floatingBtn     = nil
-local floatingAutoBtn = nil
-local floatingBtnSeq  = 0
+-- ============================================================================
+-- ACTIONS BAR — single semi-transparent panel hosting all floating buttons.
+-- ============================================================================
+-- Why this exists / Option A architecture:
+--
+-- Originally each floating button (AUTO ON/OFF, +Land, TRACKING ON/OFF, plus
+-- the always-visible Arise button owned by HUDManager) was its own draggable
+-- widget with its own persisted X/Y. That meant 4 widgets to drag and 4
+-- positions to track. This module replaces them with a single vertical
+-- panel that auto-sizes based on which toggles are enabled.
+--
+-- This is "Option A" — the bar lives here in FarmSystem and reaches into
+-- HUDManager via two small public methods (HUDManager.invokeToggle and
+-- HUDManager.hide) to suppress the standalone Arise widget and forward
+-- clicks. It's pragmatic, not architecturally clean.
+--
+-- Migration path to "Option B" (clean shared module) — see notes below
+-- the function definitions for the step-by-step plan.
+--
+-- Local-count discipline: everything hangs off the FarmSystem table — no
+-- new module-level `local` declarations, because this chunk is right at
+-- Lua's 200-local cap.
+-- ============================================================================
+FarmSystem.floatActions = {
+    bar     = { widget = nil, seq = 0 },  -- shared container window
+    buttons = {},                          -- live child button widgets (for cleanup)
+    config  = {
+        BTN_W = 104, BTN_H = 24, PAD = 6, GAP = 4,
+        OUTER_W = 116,                            -- BTN_W + 2*PAD = 116 (matches old style)
+        TONE_ON  = {0.12, 0.28, 0.15, 0.95},
+        TONE_OFF = {0.11, 0.11, 0.13, 0.92},
+    },
+}
 local updateHandler    = nil
 local autotrackerWin   = nil
 local autotrackerRows  = {}
@@ -384,6 +414,17 @@ local function loadSettings()
     if type(settings.cooledTreeSpots) ~= "table" then settings.cooledTreeSpots = {} end
     if not settings.floatingBtnX    then settings.floatingBtnX = 200 end
     if not settings.floatingBtnY    then settings.floatingBtnY = 200 end
+    if settings.showTrackButton == nil then settings.showTrackButton = false end
+    if not settings.trackBtnX       then settings.trackBtnX = 200 end
+    if not settings.trackBtnY       then settings.trackBtnY = 240 end
+    if settings.showTrackingViewBtn == nil then settings.showTrackingViewBtn = false end
+    if not settings.trackingViewBtnX then settings.trackingViewBtnX = 200 end
+    if not settings.trackingViewBtnY then settings.trackingViewBtnY = 280 end
+    -- Single position for the actions bar. Defaults to the legacy hud
+    -- position so existing users keep their familiar Arise location after
+    -- upgrading to the bar.
+    if not settings.actionsBarX then settings.actionsBarX = settings.hudX or 970 end
+    if not settings.actionsBarY then settings.actionsBarY = settings.hudY or 10 end
 end
 
 local function saveSettings()
@@ -624,40 +665,52 @@ end
 
 local function showFarmMinuteReminder(items)
     if not items or #items == 0 then return end
+    if farmMinuteReminderWin and farmMinuteReminderWin._styleVersion ~= 1 then
+        ftDestroyWidget(farmMinuteReminderWin)
+        farmMinuteReminderWin = nil
+    end
+
     if not farmMinuteReminderWin then
-        farmMinuteReminderWin = api.Interface:CreateWindow("tax_tracker_farm_minute_reminder", "Farm Reminder", 360, 180)
+        farmMinuteReminderWin = api.Interface:CreateWindow("tax_tracker_farm_minute_reminder", "Farm Reminder", 420, 180)
         farmMinuteReminderWin:AddAnchor("CENTER", "UIParent", 0, -120)
         farmMinuteReminderWin:SetCloseOnEscape(true)
         farmMinuteReminderWin:SetHandler("OnCloseByEsc", function() farmMinuteReminderWin:Show(false) end)
 
-        local bg = farmMinuteReminderWin:CreateColorDrawable(0, 0, 0, 0.62, "background")
-        bg:AddAnchor("TOPLEFT", farmMinuteReminderWin, 8, 36)
-        bg:AddAnchor("BOTTOMRIGHT", farmMinuteReminderWin, -8, -8)
-        bg:Show(true)
+        farmMinuteReminderWin._rootPanel = ftAddPanel(farmMinuteReminderWin, "farm_minute_root", 12, 42, 396, 112, FARM_UI.panel)
+        farmMinuteReminderWin._headerPanel = ftAddPanel(farmMinuteReminderWin, "farm_minute_header", 18, 48, 384, 28, FARM_UI.header)
+        farmMinuteReminderWin._listPanel = ftAddPanel(farmMinuteReminderWin, "farm_minute_list", 18, 82, 384, 64, FARM_UI.listPanel)
+
+        local title = farmMinuteReminderWin:CreateChildWidget("label", "farm_minute_title", 0, true)
+        title:SetText("Farm Reminder")
+        title:SetExtent(220, 22)
+        title:AddAnchor("TOPLEFT", farmMinuteReminderWin, 30, 52)
+        ftStyleLabel(title, FARM_UI.gold, 13, ALIGN.LEFT)
+        title:Show(true)
+        farmMinuteReminderWin._title = title
 
         local text = farmMinuteReminderWin:CreateChildWidget("textbox", "farm_minute_text", 0, true)
-        text:SetExtent(330, 88)
-        text:AddAnchor("TOPLEFT", farmMinuteReminderWin, 16, 48)
+        text:SetExtent(360, 74)
+        text:AddAnchor("TOPLEFT", farmMinuteReminderWin, 30, 92)
         if text.style then
-            text.style:SetFontSize(FONT_SIZE.MIDDLE or 16)
+            text.style:SetFontSize(FONT_SIZE.MIDDLE or 12)
             text.style:SetAlign(ALIGN.TOP_LEFT)
         end
-        if ApplyTextColor and FONT_COLOR then ApplyTextColor(text, FONT_COLOR.DEFAULT) end
+        ftSetTextColor(text, FARM_UI.white)
         text:Show(true)
         farmMinuteReminderWin._text = text
 
         local closeBtn = farmMinuteReminderWin:CreateChildWidget("button", "farm_minute_close", 0, true)
-        if ApplyButtonSkin and BUTTON_BASIC then ApplyButtonSkin(closeBtn, BUTTON_BASIC.DEFAULT) end
-        closeBtn:SetExtent(80, 26)
-        closeBtn:AddAnchor("BOTTOM", farmMinuteReminderWin, 0, -14)
-        closeBtn:SetText("OK")
+        ftPlace(closeBtn, "BOTTOM", farmMinuteReminderWin, nil, 0, -18, 86, 24)
+        ftStyleButton(closeBtn, "OK", FARM_UI.button)
         function closeBtn:OnClick() farmMinuteReminderWin:Show(false) end
         closeBtn:SetHandler("OnClick", closeBtn.OnClick)
         closeBtn:Show(true)
+        farmMinuteReminderWin._closeBtn = closeBtn
+        farmMinuteReminderWin._styleVersion = 1
     end
 
     local lines = {}
-    table.insert(lines, string.format("%d farm%s about to finish:", #items, #items == 1 and "" or "s"))
+    table.insert(lines, string.format("%d farm%s finishing soon", #items, #items == 1 and "" or "s"))
     for i, item in ipairs(items) do
         if i > 5 then
             table.insert(lines, string.format("...and %d more", #items - 5))
@@ -668,7 +721,12 @@ local function showFarmMinuteReminder(items)
     if farmMinuteReminderWin._text then
         farmMinuteReminderWin._text:SetText(table.concat(lines, "\n"))
     end
-    farmMinuteReminderWin:SetExtent(360, math.max(160, 96 + (math.min(#items, 5) * 20)))
+
+    local height = math.max(166, 112 + (math.min(#items, 5) * 20))
+    farmMinuteReminderWin:SetExtent(420, height)
+    if farmMinuteReminderWin._rootPanel then farmMinuteReminderWin._rootPanel:SetExtent(396, height - 54) end
+    if farmMinuteReminderWin._listPanel then farmMinuteReminderWin._listPanel:SetExtent(384, math.max(64, height - 118)) end
+    if farmMinuteReminderWin._text then farmMinuteReminderWin._text:SetExtent(360, math.max(74, height - 126)) end
     farmMinuteReminderWin:Show(true)
 end
 
@@ -1125,6 +1183,22 @@ local function showFarmInTracker(farm)
     if autotrackerWin then autotrackerWin:Show(true) end
 end
 
+local function clearAutotrackerWindow()
+    autotrackerFarmIds = {}
+    autotrackerFarmOrder = {}
+    autotrackerExpandedGroups = {}
+    autotrackerPage = 1
+    for _, row in ipairs(autotrackerRows or {}) do
+        if row and row.Show then row:Show(false) end
+    end
+    autotrackerRows = {}
+    autotrackerTimeLbls = {}
+    if autotrackerWin then
+        rebuildAutotrackerWindow()
+        autotrackerWin:Show(true)
+    end
+end
+
 local function deleteTrackedEntry(farm, entry)
     if not farm or not entry then return end
     local kept = {}
@@ -1367,7 +1441,13 @@ local function ensureAutotrackerWindow()
 
     autotrackerWin = api.Interface:CreateEmptyWindow("tax_tracker_autotracker_window")
     autotrackerWin:SetExtent(AUTO_W, AUTO_H)
-    autotrackerWin:AddAnchor("CENTER", "UIParent", 380, -110)
+    -- Once dragged, position is persisted in settings as a TOPLEFT offset.
+    -- First-run / never-dragged users still get the original CENTER default.
+    if settings.autotrackerWinX and settings.autotrackerWinY then
+        autotrackerWin:AddAnchor("TOPLEFT", "UIParent", settings.autotrackerWinX, settings.autotrackerWinY)
+    else
+        autotrackerWin:AddAnchor("CENTER", "UIParent", 380, -110)
+    end
     if autotrackerWin.EnableDrag then autotrackerWin:EnableDrag(true) end
     function autotrackerWin:OnDragStart()
         if self.StartMoving then self:StartMoving() end
@@ -1376,9 +1456,33 @@ local function ensureAutotrackerWindow()
     autotrackerWin:SetHandler("OnDragStart", autotrackerWin.OnDragStart)
     function autotrackerWin:OnDragStop()
         if self.StopMovingOrSizing then self:StopMovingOrSizing() end
+        if self.GetEffectiveOffset then
+            local x, y = self:GetEffectiveOffset()
+            if x and y then
+                settings.autotrackerWinX = x
+                settings.autotrackerWinY = y
+                saveSettings()
+            end
+        end
         if api.Cursor and api.Cursor.ClearCursor then api.Cursor:ClearCursor() end
     end
     autotrackerWin:SetHandler("OnDragStop", autotrackerWin.OnDragStop)
+
+    -- Keep the bar's TRACKING ON/OFF label + tone in sync with this window's
+    -- visibility. Fires for any close path (X button, Show(false) elsewhere)
+    -- without having to wire each call site.
+    function autotrackerWin:OnShow()
+        if FarmSystem.floatActions and FarmSystem.floatActions.rebuild then
+            FarmSystem.floatActions.rebuild()
+        end
+    end
+    autotrackerWin:SetHandler("OnShow", autotrackerWin.OnShow)
+    function autotrackerWin:OnHide()
+        if FarmSystem.floatActions and FarmSystem.floatActions.rebuild then
+            FarmSystem.floatActions.rebuild()
+        end
+    end
+    autotrackerWin:SetHandler("OnHide", autotrackerWin.OnHide)
 
     local bg = autotrackerWin:CreateColorDrawable(0, 0, 0, 0.62, "background")
     bg:AddAnchor("TOPLEFT", autotrackerWin, 0, 0)
@@ -1394,11 +1498,19 @@ local function ensureAutotrackerWindow()
     titleLbl:Show(true)
     autotrackerWin._titleLbl = titleLbl
 
+    local clearBtn = autotrackerWin:CreateChildWidget("button", "tt_auto_clear", 0, true)
+    ftPlace(clearBtn, "TOPRIGHT", autotrackerWin, nil, -72, 8, 56, 24)
+    ftStyleButton(clearBtn, "Clear", FARM_UI.button)
+    function clearBtn:OnClick()
+        clearAutotrackerWindow()
+    end
+    clearBtn:SetHandler("OnClick", clearBtn.OnClick)
+    clearBtn:Show(true)
+    autotrackerWin._clearBtn = clearBtn
+
     local closeBtn = autotrackerWin:CreateChildWidget("button", "tt_auto_hide", 0, true)
-    if ApplyButtonSkin and BUTTON_BASIC then ApplyButtonSkin(closeBtn, BUTTON_BASIC.DEFAULT) end
-    closeBtn:SetExtent(54, 24)
-    closeBtn:AddAnchor("TOPRIGHT", autotrackerWin, -10, 8)
-    closeBtn:SetText("Hide")
+    ftPlace(closeBtn, "TOPRIGHT", autotrackerWin, nil, -10, 8, 54, 24)
+    ftStyleButton(closeBtn, "Hide", FARM_UI.button)
     function closeBtn:OnClick()
         autotrackerWin:Show(false)
     end
@@ -1488,15 +1600,9 @@ end
 
 local function updateAutotrackerButton()
     if autotrackerBtn then autotrackerBtn:SetText(settings.autotrackerEnabled and "Autotracker: ON" or "Autotracker: OFF") end
-    if floatingAutoBtn then
-        if floatingAutoBtn.SetCleanText then
-            floatingAutoBtn:SetCleanText(settings.autotrackerEnabled and "AUTO ON" or "AUTO OFF")
-        elseif floatingAutoBtn.SetText then
-            floatingAutoBtn:SetText(settings.autotrackerEnabled and "Auto: ON" or "Auto: OFF")
-        end
-        if floatingAutoBtn.SetTone then
-            floatingAutoBtn:SetTone(settings.autotrackerEnabled and {0.12, 0.28, 0.15, 0.95} or {0.11, 0.11, 0.13, 0.92})
-        end
+    -- Bar's AUTO row label + tone are owned by FarmSystem.floatActions.rebuild()
+    if FarmSystem.floatActions and FarmSystem.floatActions.rebuild then
+        FarmSystem.floatActions.rebuild()
     end
     local text = settings.autotrackerEnabled and "Autotracker: ON" or "Autotracker: OFF"
     for i = #externalAutotrackerButtons, 1, -1 do
@@ -1674,6 +1780,7 @@ rebuildDoodadList = function()
             ftStyleButton(delBtn, "Del", FARM_UI.red)
             local capturedName  = item.name
             local capturedOwner = item.owner
+            delBtn._groupKey = item.key
             function delBtn:OnClick()
                 local f = detailFarmId and getFarmById(detailFarmId)
                 if not f then return end
@@ -1686,11 +1793,22 @@ rebuildDoodadList = function()
                         table.insert(remaining, d)
                     end
                 end
+                if #remaining == 0 then
+                    local farmId = f.id
+                    expandedGroups[self._groupKey] = nil
+                    deleteFarm(farmId)
+                    if detailWin and detailWin:IsVisible() and detailFarmId == farmId then closeDetailWindow() end
+                    if mainWin and mainWin:IsVisible() then rebuildFarmList() end
+                    if autotrackerWin then rebuildAutotrackerWindow() end
+                    return
+                end
                 f.doodads = remaining
-                expandedGroups[item.key] = nil
+                expandedGroups[self._groupKey] = nil
                 saveFarm(f)
                 detailPage = 1
                 rebuildDoodadList()
+                if mainWin and mainWin:IsVisible() then rebuildFarmList() end
+                if autotrackerWin then rebuildAutotrackerWindow() end
             end
             delBtn:SetHandler("OnClick", delBtn.OnClick)
             delBtn:Show(true)
@@ -1719,13 +1837,25 @@ rebuildDoodadList = function()
 
             -- Time label in Earliest column
             local tLbl = row:CreateChildWidget("label", "ft_dl_et_"..rid.."_"..i, 0, true)
-            tLbl:SetExtent(200, 27)
+            tLbl:SetExtent(170, 27)
             tLbl:AddAnchor("LEFT", row, DETAIL_EARLIEST_X, 0)
             tLbl:SetText(formatTime(item.t))
             tLbl:SetAutoResize(false)
             ftStyleLabel(tLbl, FARM_UI.white, 12, ALIGN.LEFT)
             tLbl:Show(true)
             table.insert(detailTimeLbls, { kind="entry", lbl=tLbl, entry=item.entry })
+
+            row._delBtn = row:CreateChildWidget("button", "ft_dl_edel_"..rid.."_"..i, 0, true)
+            ftPlace(row._delBtn, "RIGHT", row, nil, -6, 0, 38, 22)
+            ftStyleButton(row._delBtn, "Del", FARM_UI.red)
+            row._delBtn._farmId = detailFarmId
+            row._delBtn._entryRef = item.entry
+            function row._delBtn:OnClick()
+                local f = self._farmId and getFarmById(self._farmId)
+                if f then deleteTrackedEntry(f, self._entryRef) end
+            end
+            row._delBtn:SetHandler("OnClick", row._delBtn.OnClick)
+            row._delBtn:Show(true)
         end
     end
     end) -- end pcall
@@ -1789,6 +1919,7 @@ local function openDetailWindow(farmId)
         makeDHdr("ft_dh_qty",      "Qty",         DETAIL_QTY_X,      DETAIL_QTY_W)
         makeDHdr("ft_dh_earliest", "Earliest",    DETAIL_EARLIEST_X, DETAIL_TIME_W)
         makeDHdr("ft_dh_latest",   "Latest",      DETAIL_LATEST_X,   DETAIL_TIME_W)
+        makeDHdr("ft_dh_delete",   "Del",         DETAIL_W - 74,     40)
 
         -- Doodad list page controls (centered at bottom)
         local dPageCtrl = W_CTRL.CreatePageControl("ft_d_pagectrl", detailWin, "tutorial")
@@ -1927,6 +2058,8 @@ local function openDetailWindow(farmId)
                 f.doodads = {}
             end
             saveFarm(f); detailPage = 1; rebuildDoodadList()
+            if mainWin and mainWin:IsVisible() then rebuildFarmList() end
+            if autotrackerWin then rebuildAutotrackerWindow() end
         end
         btnReset:SetHandler("OnClick", btnReset.OnClick)
         btnReset:Show(true)
@@ -2012,10 +2145,11 @@ local function setAutotrackerEnabled(enabled)
     saveSettings()
     setDoodadListenerEnabled(settings.autotrackerEnabled)
     updateAutotrackerButton()
-    if not settings.autotrackerEnabled and autotrackerWin then
-        rebuildAutotrackerWindow()
-        autotrackerWin:Show(false)
-    end
+    -- Note: AUTO toggle controls only the doodad scanner now. The tracker
+    -- window's visibility is owned by the bar's TRACKING toggle (or the
+    -- window's own X button). Don't force-hide here — that was old coupling
+    -- from before the TRACKING toggle existed and made AUTO off → TRACKING
+    -- off as a side effect.
 end
 
 local function refreshSettingsLabels()
@@ -2538,63 +2672,92 @@ openFilterWindow = function(farm)
 end
 
 -- ============================================================
--- FLOATING BUTTON
+-- ACTIONS BAR — unified floating panel
+-- ============================================================
+-- Replaces three separate floating widgets (AUTO, +Land, TRACKING) plus
+-- HUDManager's standalone Arise button. The bar auto-resizes vertically
+-- based on which toggles are enabled. Single position persisted in
+-- settings.actionsBarX/Y.
+--
+-- ALL methods attach to FarmSystem.floatActions (table fields) so they do
+-- NOT add module-level `local`s — the chunk is at Lua's 200-local cap.
+--
+-- See "MIGRATION NOTES" comment at the bottom of this section for the
+-- step-by-step path to Option B (clean shared module).
 -- ============================================================
 
-local function destroyFloatingBtn()
-    if floatingBtn then
-        floatingBtn:Show(false)
-        floatingBtn = nil
-        floatingAutoBtn = nil
-    end
+-- Hide the legacy standalone Arise widget so it doesn't double up with
+-- the bar's Arise button.
+function FarmSystem.floatActions.suppressStandaloneArise()
+    pcall(function()
+        local HUDManager = require("tax_tracker/ui/hudmanager")
+        if HUDManager and HUDManager.hide then HUDManager.hide() end
+    end)
 end
 
-local function createFloatingBtn()
-    if floatingBtn then return end
+-- Restore the standalone Arise widget. Called when the bar is destroyed
+-- so the user always has a way to open the saved-lands window.
+function FarmSystem.floatActions.restoreStandaloneArise()
+    pcall(function()
+        local HUDManager = require("tax_tracker/ui/hudmanager")
+        if HUDManager and HUDManager.show then HUDManager.show() end
+    end)
+end
 
-    floatingBtnSeq = floatingBtnSeq + 1
-    floatingBtn = api.Interface:CreateEmptyWindow("ft_floating_btn_"..floatingBtnSeq, "UIParent")
-    floatingBtn.background = floatingBtn:CreateColorDrawable(0.05, 0.05, 0.06, 0.62, "background")
-    floatingBtn.background:AddAnchor("TOPLEFT", floatingBtn, 0, 0)
-    floatingBtn.background:AddAnchor("BOTTOMRIGHT", floatingBtn, 0, 0)
-    floatingBtn:AddAnchor("TOPLEFT", "UIParent", settings.floatingBtnX or 200, settings.floatingBtnY or 200)
-    settings.floatingBtnX = settings.floatingBtnX or 200
-    settings.floatingBtnY = settings.floatingBtnY or 200
-    saveSettings()
-    floatingBtn:SetExtent(116, 34)
+function FarmSystem.floatActions.invokeArise()
+    pcall(function()
+        local HUDManager = require("tax_tracker/ui/hudmanager")
+        if HUDManager and HUDManager.invokeToggle then HUDManager.invokeToggle() end
+    end)
+end
 
-    function floatingBtn:OnDragStart()
-        if api.Input:IsShiftKeyDown() then
-            floatingBtn:StartMoving()
-            api.Cursor:ClearCursor()
-            api.Cursor:SetCursorImage(CURSOR_PATH.MOVE, 0, 0)
+function FarmSystem.floatActions.openEditorFromTarget()
+    -- Open the land editor and immediately trigger its built-in "From Target"
+    -- button so coordinates, name, and (where possible) type are filled from
+    -- whatever the player is currently targeting.
+    local ok, UIManager = pcall(require, "tax_tracker/ui/uimanager_v2")
+    if not (ok and UIManager) then
+        log("Quick-track: UIManager unavailable")
+        return
+    end
+    pcall(function()
+        if not UIManager.isInitialized then UIManager.initialize(nil, nil) end
+        if UIManager.clearEditMode then UIManager.clearEditMode() end
+        if UIManager.showWindow then UIManager.showWindow() end
+        local trackTargetBtn = UIManager.components and UIManager.components.trackTargetBtn
+        if trackTargetBtn and trackTargetBtn.OnClick then trackTargetBtn:OnClick() end
+    end)
+end
+
+function FarmSystem.floatActions.isAutotrackerVisible()
+    return autotrackerWin and autotrackerWin.IsVisible and autotrackerWin:IsVisible()
+end
+
+function FarmSystem.floatActions.toggleTrackingWindow()
+    pcall(function()
+        ensureAutotrackerWindow()
+        if FarmSystem.floatActions.isAutotrackerVisible() then
+            autotrackerWin:Show(false)
+        else
+            rebuildAutotrackerWindow()
+            autotrackerWin:Show(true)
         end
-    end
-    floatingBtn:SetHandler("OnDragStart", floatingBtn.OnDragStart)
+        FarmSystem.floatActions.rebuild()  -- refresh TRACKING ON/OFF label + tone
+    end)
+end
 
-    function floatingBtn:OnDragStop()
-        local x, y = floatingBtn:GetEffectiveOffset()
-        settings.floatingBtnX = x
-        settings.floatingBtnY = y
-        saveSettings()
-        floatingBtn:StopMovingOrSizing()
-        api.Cursor:ClearCursor()
-    end
-    floatingBtn:SetHandler("OnDragStop", floatingBtn.OnDragStop)
-
-    local btn = api.Interface:CreateWidget("button", "ft_floating_inner_btn_"..floatingBtnSeq, floatingBtn)
-    btn:SetExtent(104, 24)
-    btn:RemoveAllAnchors()
-    btn:AddAnchor("TOPLEFT", floatingBtn, 6, 5)
+-- Build a single button widget as a child of the bar's container.
+function FarmSystem.floatActions.makeBarButton(parent, idTag, seq, label, tone, onClick)
+    local cfg = FarmSystem.floatActions.config
+    local btn = api.Interface:CreateWidget("button", "ft_bar_btn_"..idTag.."_"..seq, parent)
+    btn:SetExtent(cfg.BTN_W, cfg.BTN_H)
     btn:SetText("")
-
-    btn._bg = btn:CreateColorDrawable(0.11, 0.11, 0.13, 0.92, "background")
+    btn._bg = btn:CreateColorDrawable(tone[1], tone[2], tone[3], tone[4], "background")
     btn._bg:AddAnchor("TOPLEFT", btn, 0, 0)
     btn._bg:AddAnchor("BOTTOMRIGHT", btn, 0, 0)
     btn._bg:Show(true)
-
-    btn._label = btn:CreateChildWidget("label", "ft_floating_inner_label_"..floatingBtnSeq, 0, true)
-    btn._label:SetExtent(104, 22)
+    btn._label = btn:CreateChildWidget("label", "ft_bar_btn_lbl_"..idTag.."_"..seq, 0, true)
+    btn._label:SetExtent(cfg.BTN_W, cfg.BTN_H - 2)
     btn._label:AddAnchor("TOPLEFT", btn, 0, 1)
     if btn._label.style then
         if btn._label.style.SetFontSize then btn._label.style:SetFontSize(11) end
@@ -2602,36 +2765,184 @@ local function createFloatingBtn()
         if btn._label.style.SetColor then btn._label.style:SetColor(1, 1, 1, 1) end
     end
     if btn._label.EnablePick then btn._label:EnablePick(false) end
+    btn._label:SetText(label or "")
     btn._label:Show(true)
-
-    function btn:SetCleanText(text)
-        if self._label then self._label:SetText(text or "") end
-    end
-    function btn:SetTone(color)
-        local c = color or {0.11, 0.11, 0.13, 0.92}
-        if self._bg and self._bg.SetColor then self._bg:SetColor(c[1], c[2], c[3], c[4]) end
-    end
-    btn:SetCleanText(settings.autotrackerEnabled and "AUTO ON" or "AUTO OFF")
-    btn:SetTone(settings.autotrackerEnabled and {0.12, 0.28, 0.15, 0.95} or {0.11, 0.11, 0.13, 0.92})
-    btn.OnClick = function(self)
-        setAutotrackerEnabled(not settings.autotrackerEnabled)
-        if self.SetCleanText then self:SetCleanText(settings.autotrackerEnabled and "AUTO ON" or "AUTO OFF") end
-        if self.SetTone then self:SetTone(settings.autotrackerEnabled and {0.12, 0.28, 0.15, 0.95} or {0.11, 0.11, 0.13, 0.92}) end
-    end
+    btn.OnClick = function() onClick() end
     btn:SetHandler("OnClick", btn.OnClick)
     btn:Show(true)
-    floatingAutoBtn = btn
-
-    floatingBtn:Show(true)
-    floatingBtn:EnableDrag(true)
+    return btn
 end
+
+-- Tear down the live button children (called before re-rendering, and on
+-- bar destroy). We can't trust Destroy() in this engine, so we Show(false)
+-- + clear our list. Children stay parented to the bar's container; when
+-- the next rebuild runs, fresh widgets get unique names so they don't
+-- collide with the hidden ones.
+function FarmSystem.floatActions.clearButtons()
+    for _, b in ipairs(FarmSystem.floatActions.buttons) do
+        pcall(function() if b.Show then b:Show(false) end end)
+    end
+    FarmSystem.floatActions.buttons = {}
+end
+
+-- Render the bar's contents based on the current settings flags. Re-runs
+-- whenever a toggle changes, the autotracker visibility flips, or the
+-- AUTO button is clicked (label/tone need to update).
+function FarmSystem.floatActions.rebuild()
+    local fa = FarmSystem.floatActions
+    if not fa.bar.widget then
+        fa.create()
+        return
+    end
+
+    fa.clearButtons()
+    fa.bar.seq = fa.bar.seq + 1
+    local seq = fa.bar.seq
+    local cfg = fa.config
+
+    -- Build ordered list of items based on which toggles are enabled.
+    -- Arise is always first (the addon's primary entrypoint).
+    local items = {}
+    table.insert(items, {
+        idTag = "arise", label = "Arise", tone = cfg.TONE_ON,
+        onClick = fa.invokeArise,
+    })
+    if settings.showFloatingBtn then
+        table.insert(items, {
+            idTag = "auto",
+            label = settings.autotrackerEnabled and "AUTO ON" or "AUTO OFF",
+            tone  = settings.autotrackerEnabled and cfg.TONE_ON or cfg.TONE_OFF,
+            onClick = function()
+                setAutotrackerEnabled(not settings.autotrackerEnabled)
+                fa.rebuild()
+            end,
+        })
+    end
+    if settings.showTrackButton then
+        table.insert(items, {
+            idTag = "addland", label = "+ Land", tone = cfg.TONE_ON,
+            onClick = fa.openEditorFromTarget,
+        })
+    end
+    if settings.showTrackingViewBtn then
+        local on = fa.isAutotrackerVisible()
+        table.insert(items, {
+            idTag = "trackview",
+            label = on and "TRACKING ON" or "TRACKING OFF",
+            tone  = on and cfg.TONE_ON or cfg.TONE_OFF,
+            onClick = fa.toggleTrackingWindow,
+        })
+    end
+
+    -- Resize the container to fit N stacked buttons.
+    local count = #items
+    local h = cfg.PAD * 2 + count * cfg.BTN_H + math.max(0, count - 1) * cfg.GAP
+    fa.bar.widget:SetExtent(cfg.OUTER_W, h)
+
+    -- Place children top-to-bottom with consistent gaps.
+    for i, item in ipairs(items) do
+        local b = fa.makeBarButton(fa.bar.widget, item.idTag, seq, item.label, item.tone, item.onClick)
+        b:RemoveAllAnchors()
+        b:AddAnchor("TOPLEFT", fa.bar.widget, cfg.PAD, cfg.PAD + (i - 1) * (cfg.BTN_H + cfg.GAP))
+        table.insert(fa.buttons, b)
+    end
+end
+
+function FarmSystem.floatActions.destroy()
+    FarmSystem.floatActions.clearButtons()
+    if FarmSystem.floatActions.bar.widget then
+        pcall(function() FarmSystem.floatActions.bar.widget:Show(false) end)
+        FarmSystem.floatActions.bar.widget = nil
+    end
+    FarmSystem.floatActions.restoreStandaloneArise()
+end
+
+function FarmSystem.floatActions.create()
+    local fa  = FarmSystem.floatActions
+    local cfg = fa.config
+    if fa.bar.widget then
+        fa.rebuild()
+        return
+    end
+
+    fa.bar.seq = fa.bar.seq + 1
+    local w = api.Interface:CreateEmptyWindow("ft_actions_bar_"..fa.bar.seq, "UIParent")
+    fa.bar.widget = w
+
+    local bg = w:CreateColorDrawable(0.05, 0.05, 0.06, 0.62, "background")
+    bg:AddAnchor("TOPLEFT", w, 0, 0)
+    bg:AddAnchor("BOTTOMRIGHT", w, 0, 0)
+    bg:Show(true)
+
+    settings.actionsBarX = settings.actionsBarX or settings.hudX or 970
+    settings.actionsBarY = settings.actionsBarY or settings.hudY or 10
+    saveSettings()
+    w:AddAnchor("TOPLEFT", "UIParent", settings.actionsBarX, settings.actionsBarY)
+    w:SetExtent(cfg.OUTER_W, cfg.PAD * 2 + cfg.BTN_H)  -- placeholder; rebuild() resizes
+
+    function w:OnDragStart()
+        if api.Input:IsShiftKeyDown() then
+            w:StartMoving()
+            api.Cursor:ClearCursor()
+            api.Cursor:SetCursorImage(CURSOR_PATH.MOVE, 0, 0)
+        end
+    end
+    w:SetHandler("OnDragStart", w.OnDragStart)
+    function w:OnDragStop()
+        local x, y = w:GetEffectiveOffset()
+        if x and y then
+            settings.actionsBarX = x
+            settings.actionsBarY = y
+            saveSettings()
+        end
+        w:StopMovingOrSizing()
+        api.Cursor:ClearCursor()
+    end
+    w:SetHandler("OnDragStop", w.OnDragStop)
+
+    w:Show(true)
+    w:EnableDrag(true)
+
+    fa.suppressStandaloneArise()
+    fa.rebuild()
+end
+
+-- ============================================================================
+-- MIGRATION NOTES — moving from Option A (here) to Option B (shared module)
+-- ============================================================================
+-- The bar lives inline in FarmSystem because moving it would have required
+-- refactoring HUDManager's singleton/orphan-cleanup machinery, which has
+-- known scar tissue. If/when that complexity is acceptable:
+--
+-- 1. Create tax_tracker/ui/actions_bar.lua exporting:
+--      ActionsBar.register(name, { isEnabled=fn, getLabel=fn, getTone=fn,
+--                                   onClick=fn })
+--      ActionsBar.unregister(name)
+--      ActionsBar.rebuild()  -- iterates registrations in order
+--      ActionsBar.create() / destroy() / show() / hide()
+-- 2. Move bar/buttons/config tables and create/destroy/rebuild logic from
+--    here into that module. Keep openEditorFromTarget /
+--    toggleTrackingWindow here in FarmSystem (they're farm-specific).
+-- 3. In HUDManager.initialize(): instead of creating the standalone Arise
+--    widget, call ActionsBar.register("arise", { ... onClick = callback }).
+--    Remove HUDManager.hide() / restoreStandaloneArise() calls — no longer
+--    needed because Arise is no longer a separate widget.
+-- 4. In FarmSystem (here): replace the inline rebuild() with three
+--    register() calls — one per toggle. The settings-toggle handlers in
+--    openSettingsWindow flip the enabled flag and call ActionsBar.rebuild().
+-- 5. Delete obsolete settings keys: floatingBtnX/Y, trackBtnX/Y,
+--    trackingViewBtnX/Y, hudX/Y. They're already unused in Option A but
+--    still consume settings space.
+-- 6. main.lua's MichaelClient ESC entry doesn't depend on the bar — leave
+--    that path alone.
+-- ============================================================================
 
 -- ============================================================
 -- SETTINGS WINDOW
 -- ============================================================
 
 local SETTINGS_W = 500
-local SETTINGS_H = 380
+local SETTINGS_H = 452
 
 local function openSettingsWindow()
     if settingsWin then
@@ -2728,7 +3039,7 @@ local function openSettingsWindow()
     panel(12, 42, SETTINGS_W - 24, SETTINGS_H - 54, ui.panel)
     panel(12, 42, SETTINGS_W - 24, 26, ui.header)
     label("ft_sw_title", "Autotracker", 24, 47, 220, ui.gold, 13)
-    panel(20, 80, SETTINGS_W - 40, 104, ui.groupDetails)
+    panel(20, 80, SETTINGS_W - 40, 176, ui.groupDetails)
 
     local MOD_OPTIONS = { "Any modifier", "Ctrl", "Alt", "Shift", "None required" }
     local MOD_VALUES  = { "any", "ctrl", "alt", "shift", "none" }
@@ -2760,7 +3071,7 @@ local function openSettingsWindow()
     floatBtn = button("ft_fb_float_btn", "", 340, 120, 120, 24, ui.button, function()
         settings.showFloatingBtn = not settings.showFloatingBtn
         saveSettings()
-        if settings.showFloatingBtn then createFloatingBtn() else destroyFloatingBtn() end
+        FarmSystem.floatActions.rebuild()
         updateFloatBtn()
     end)
     updateFloatBtn()
@@ -2779,12 +3090,42 @@ local function openSettingsWindow()
     end)
     updateReminderBtn()
 
-    panel(12, 208, SETTINGS_W - 24, 26, ui.header)
-    label("ft_fb_spot_header", "Cooled Tree Trunk Spots", 24, 213, 260, ui.gold, 13)
-    panel(20, 246, SETTINGS_W - 40, 84, ui.groupTools)
-    settingsCooledSpotLbl = label("ft_fb_spot_count", "", 30, 254, 420, ui.white)
-    label("ft_fb_spot_name_lbl", "Spot name", 30, 284, 80, ui.muted)
-    panel(108, 280, 262, 30, ui.input)
+    local trackToggleBtn
+    local function updateTrackToggleBtn()
+        if not trackToggleBtn then return end
+        trackToggleBtn:SetCleanText(settings.showTrackButton and "On" or "Off")
+        trackToggleBtn:SetTone(settings.showTrackButton and ui.green or ui.button)
+    end
+    label("ft_fb_track_lbl", "Floating quick-track button (+ Land)", 30, 194, 280, ui.white)
+    trackToggleBtn = button("ft_fb_track_btn", "", 340, 192, 120, 24, ui.button, function()
+        settings.showTrackButton = not settings.showTrackButton
+        saveSettings()
+        FarmSystem.floatActions.rebuild()
+        updateTrackToggleBtn()
+    end)
+    updateTrackToggleBtn()
+
+    local trackingViewToggleBtn
+    local function updateTrackingViewToggleBtn()
+        if not trackingViewToggleBtn then return end
+        trackingViewToggleBtn:SetCleanText(settings.showTrackingViewBtn and "On" or "Off")
+        trackingViewToggleBtn:SetTone(settings.showTrackingViewBtn and ui.green or ui.button)
+    end
+    label("ft_fb_trackview_lbl", "Floating tracking-window button", 30, 230, 280, ui.white)
+    trackingViewToggleBtn = button("ft_fb_trackview_btn", "", 340, 228, 120, 24, ui.button, function()
+        settings.showTrackingViewBtn = not settings.showTrackingViewBtn
+        saveSettings()
+        FarmSystem.floatActions.rebuild()
+        updateTrackingViewToggleBtn()
+    end)
+    updateTrackingViewToggleBtn()
+
+    panel(12, 280, SETTINGS_W - 24, 26, ui.header)
+    label("ft_fb_spot_header", "Cooled Tree Trunk Spots", 24, 285, 260, ui.gold, 13)
+    panel(20, 318, SETTINGS_W - 40, 84, ui.groupTools)
+    settingsCooledSpotLbl = label("ft_fb_spot_count", "", 30, 326, 420, ui.white)
+    label("ft_fb_spot_name_lbl", "Spot name", 30, 356, 80, ui.muted)
+    panel(108, 352, 262, 30, ui.input)
 
     if W_CTRL and W_CTRL.CreateEdit then
         settingsSpotNameEdit = W_CTRL.CreateEdit("ft_fb_spot_name_edit", settingsWin)
@@ -2792,7 +3133,7 @@ local function openSettingsWindow()
         settingsSpotNameEdit = settingsWin:CreateChildWidget("edit", "ft_fb_spot_name_edit", 0, true)
     end
     settingsSpotNameEdit:SetExtent(254, 26)
-    settingsSpotNameEdit:AddAnchor("TOPLEFT", settingsWin, 112, 282)
+    settingsSpotNameEdit:AddAnchor("TOPLEFT", settingsWin, 112, 354)
     settingsSpotNameEdit:SetText("")
     if settingsSpotNameEdit.style then
         if settingsSpotNameEdit.style.SetFontSize then settingsSpotNameEdit.style:SetFontSize(12) end
@@ -2800,10 +3141,10 @@ local function openSettingsWindow()
     end
     settingsSpotNameEdit:Show(true)
 
-    panel(20, 334, SETTINGS_W - 40, 30, ui.groupActions)
-    button("ft_fb_capture", "Capture Spot", 30, 340, 130, 24, ui.green, function() captureCooledTreeSpot() end)
-    button("ft_fb_list", "List Spots", 170, 340, 110, 24, ui.button, function() openSpotListWindow() end)
-    button("ft_fb_clear", "Clear Spots", 290, 340, 110, 24, ui.red, function()
+    panel(20, 406, SETTINGS_W - 40, 30, ui.groupActions)
+    button("ft_fb_capture", "Capture Spot", 30, 412, 130, 24, ui.green, function() captureCooledTreeSpot() end)
+    button("ft_fb_list", "List Spots", 170, 412, 110, 24, ui.button, function() openSpotListWindow() end)
+    button("ft_fb_clear", "Clear Spots", 290, 412, 110, 24, ui.red, function()
         settings.cooledTreeSpots = {}
         saveSettings()
         refreshSettingsLabels()
@@ -3310,9 +3651,11 @@ local function OnLoad()
     ok, err = pcall(function() setDoodadListenerEnabled(settings.autotrackerEnabled) end)
     if not ok then log("Failed to initialize doodad listener: " .. tostring(err)) end
 
-    if settings.showFloatingBtn then
-        api:DoIn(200, function() pcall(createFloatingBtn) end)
-    end
+    -- Always create the actions bar — it hosts the always-visible Arise button
+    -- plus whichever toggle-driven buttons are enabled. Slight delay to let
+    -- HUDManager finish creating its standalone Arise so suppressStandaloneArise
+    -- has something to hide.
+    api:DoIn(250, function() pcall(FarmSystem.floatActions.create) end)
 
     if api.On and not updateHandler then
         updateHandler = OnUpdate
@@ -3326,7 +3669,9 @@ local function OnUnload()
     end
     updateHandler = nil
 
-    if floatingBtn   then floatingBtn:Show(false)      end
+    if FarmSystem.floatActions and FarmSystem.floatActions.destroy then
+        pcall(FarmSystem.floatActions.destroy)
+    end
     if mainWin       then mainWin:Show(false)          end
     if detailWin     then detailWin:Show(false)        end
     if filterWin     then filterWin:Show(false)        end
