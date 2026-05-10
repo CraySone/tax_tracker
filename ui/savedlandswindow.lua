@@ -568,12 +568,12 @@ function CreateHeaderButtons()
     local autotrackerBtn = listWin:CreateChildWidget("button", "autotrackerBtn", 0, true)
     autotrackerBtn:SetExtent(150, 28)
     autotrackerBtn:AddAnchor("LEFT", farmTrackerBtn, "RIGHT", 10, 0)
-    styleFlatButton(autotrackerBtn, "Autotracker: OFF", UI.button)
+    styleFlatButton(autotrackerBtn, "Autotracker OFF", UI.button)
 
     local function refreshAutotrackerText()
         local farmSuccess, FarmSystem = pcall(require, "tax_tracker/farmsystem")
         local enabled = farmSuccess and FarmSystem and FarmSystem.isAutotrackerEnabled and FarmSystem.isAutotrackerEnabled()
-        autotrackerBtn:SetText(enabled and "Autotracker: ON" or "Autotracker: OFF")
+        autotrackerBtn:SetText(enabled and "Autotracker ON" or "Autotracker OFF")
         if autotrackerBtn.SetTone then autotrackerBtn:SetTone(enabled and UI.green or UI.button) end
     end
     refreshAutotrackerText()

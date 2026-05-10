@@ -11,7 +11,7 @@ local SETTINGS_KEY      = "farmTrackerSettings"
 local ALL_FARMS_KEY     = "farmTrackerData"
 
 local MAIN_W, MAIN_H     = 820, 470
-local DETAIL_W, DETAIL_H = 760, 500
+local DETAIL_W, DETAIL_H = 800, 500
 
 -- Detail window layout
 local DETAIL_LIST_Y        = 106  -- top of doodad list content
@@ -21,8 +21,8 @@ local DETAIL_NAME_W        = 390
 local DETAIL_QTY_X         = 442
 local DETAIL_QTY_W         = 36
 local DETAIL_EARLIEST_X    = 486
-local DETAIL_TIME_W        = 82
-local DETAIL_LATEST_X      = 584
+local DETAIL_TIME_W        = 110
+local DETAIL_LATEST_X      = 600
 
 -- ============================================================
 -- STATE
@@ -97,8 +97,20 @@ local SPOT_LIST_ROWS = 9
 -- Lua's 200-local cap.
 -- ============================================================================
 FarmSystem.floatActions = {
-    bar     = { widget = nil, seq = 0 },  -- shared container window
+    bar     = { widget = nil },            -- shared container window
     buttons = {},                          -- live child button widgets (for cleanup)
+    -- Stable widget names so cullByName() can find orphans from prior addon
+    -- loads. We don't bake a sequence counter into the names because module
+    -- locals reset on /reload and we'd lose the ability to find the old
+    -- widgets at all.
+    names = {
+        bar    = "ft_actions_bar",
+        arise  = "ft_bar_btn_arise",
+        auto   = "ft_bar_btn_auto",
+        addLand = "ft_bar_btn_addland",
+        track  = "ft_bar_btn_trackview",
+        farms  = "ft_bar_btn_farms",
+    },
     config  = {
         BTN_W = 104, BTN_H = 24, PAD = 6, GAP = 4,
         OUTER_W = 116,                            -- BTN_W + 2*PAD = 116 (matches old style)
@@ -412,6 +424,7 @@ local function loadSettings()
     if settings.autotrackerEnabled == nil then settings.autotrackerEnabled = false end
     if settings.farmMinuteReminderEnabled == nil then settings.farmMinuteReminderEnabled = true end
     if type(settings.cooledTreeSpots) ~= "table" then settings.cooledTreeSpots = {} end
+    if type(settings.mineralWaterSpots) ~= "table" then settings.mineralWaterSpots = {} end
     if not settings.floatingBtnX    then settings.floatingBtnX = 200 end
     if not settings.floatingBtnY    then settings.floatingBtnY = 200 end
     if settings.showTrackButton == nil then settings.showTrackButton = false end
@@ -420,6 +433,11 @@ local function loadSettings()
     if settings.showTrackingViewBtn == nil then settings.showTrackingViewBtn = false end
     if not settings.trackingViewBtnX then settings.trackingViewBtnX = 200 end
     if not settings.trackingViewBtnY then settings.trackingViewBtnY = 280 end
+    if settings.showFarmListBtn == nil then settings.showFarmListBtn = false end
+    -- Global favourite filter lists. Names in these tables bypass per-farm
+    -- filter rejection and survive across farm creation/deletion.
+    if type(settings.favouritePlayers) ~= "table" then settings.favouritePlayers = {} end
+    if type(settings.favouriteEntities) ~= "table" then settings.favouriteEntities = {} end
     -- Single position for the actions bar. Defaults to the legacy hud
     -- position so existing users keep their familiar Arise location after
     -- upgrading to the bar.
@@ -550,6 +568,119 @@ local function isCooledTreeInfo(info)
     return tostring(info.name):lower():find("cooled tree trunk", 1, true) ~= nil
 end
 
+-- Tracked fish hover targets. Both names per fish: schooling (non-fed) and
+-- feeding frenzy (fed). Hardcoded set so unrelated mobs can't trigger fish
+-- mode by accident.
+--
+-- Attached to the FarmSystem table rather than as module-level locals
+-- because this chunk is at Lua's 200-local cap (see "Local-count
+-- discipline" comment near floatActions). Same for the helpers below.
+FarmSystem._FISH_NAMES = {
+    "Bluefin Tuna",
+    "Sturgeon",
+    "Sailfish",
+    "Blue Marlin",
+}
+
+FarmSystem._FISH_MATCH = {}
+for _, fish in ipairs(FarmSystem._FISH_NAMES) do
+    FarmSystem._FISH_MATCH["schooling " .. fish:lower()] = true
+    FarmSystem._FISH_MATCH[fish:lower() .. " feeding frenzy"] = true
+end
+
+function FarmSystem._isFishInfo(info)
+    if not info or not info.name then return false end
+    return FarmSystem._FISH_MATCH[tostring(info.name):lower()] == true
+end
+
+-- Working Settler Gamekeeper NPC — quest unlocks after its timer, so
+-- hover-tracking the timer is exactly the right tool. Single name match.
+function FarmSystem._isGamekeeperInfo(info)
+    if not info or not info.name then return false end
+    return tostring(info.name):lower():find("working settler gamekeeper", 1, true) ~= nil
+end
+
+-- Global favourite-filter helpers. Stored on settings as
+-- lowercase-key -> original-case-name string tables. Lookup is
+-- case-insensitive; the original case is preserved so seeded entries
+-- display nicely. Legacy entries with value === true are still treated
+-- as favourites (key used as display name) for backward compatibility.
+function FarmSystem._isFavouritePlayer(name)
+    if not name or name == "" then return false end
+    local s = api.GetSettings("tax_tracker") or {}
+    local list = s.favouritePlayers
+    if type(list) ~= "table" then return false end
+    return list[tostring(name):lower()] ~= nil
+end
+
+function FarmSystem._isFavouriteEntity(name)
+    if not name or name == "" then return false end
+    local s = api.GetSettings("tax_tracker") or {}
+    local list = s.favouriteEntities
+    if type(list) ~= "table" then return false end
+    return list[tostring(name):lower()] ~= nil
+end
+
+function FarmSystem._toggleFavouritePlayer(name)
+    if not name or name == "" then return end
+    local s = api.GetSettings("tax_tracker") or {}
+    if type(s.favouritePlayers) ~= "table" then s.favouritePlayers = {} end
+    local key = tostring(name):lower()
+    -- Don't use `and ... or` ternary here: Lua short-circuits when the middle
+    -- operand is nil, so `(x) and nil or v` always evaluates to v, leaving the
+    -- favourite stuck on.
+    if s.favouritePlayers[key] ~= nil then
+        s.favouritePlayers[key] = nil
+    else
+        s.favouritePlayers[key] = name
+    end
+    pcall(function() api.SaveSettings() end)
+end
+
+function FarmSystem._toggleFavouriteEntity(name)
+    if not name or name == "" then return end
+    local s = api.GetSettings("tax_tracker") or {}
+    if type(s.favouriteEntities) ~= "table" then s.favouriteEntities = {} end
+    local key = tostring(name):lower()
+    if s.favouriteEntities[key] ~= nil then
+        s.favouriteEntities[key] = nil
+    else
+        s.favouriteEntities[key] = name
+    end
+    pcall(function() api.SaveSettings() end)
+end
+
+-- Ensure every global favourite has a corresponding (enabled) entry in the
+-- given farm's scanPlayers/scanEntities. Called when the filter window
+-- opens and when tryAddDoodad would auto-register, so favourites show up in
+-- every farm's filter list immediately, not just after a name is scanned.
+function FarmSystem._seedFavourites(farm)
+    if type(farm) ~= "table" then return end
+    if type(farm.scanPlayers) ~= "table" then farm.scanPlayers = {} end
+    if type(farm.scanEntities) ~= "table" then farm.scanEntities = {} end
+    local s = api.GetSettings("tax_tracker") or {}
+    local function seedInto(list, favTable)
+        if type(favTable) ~= "table" then return end
+        for favKey, favVal in pairs(favTable) do
+            if favVal ~= nil then
+                local displayName = (type(favVal) == "string" and favVal ~= "") and favVal or favKey
+                local found = false
+                for _, e in ipairs(list) do
+                    if type(e.name) == "string" and e.name:lower() == favKey then
+                        found = true
+                        break
+                    end
+                end
+                if not found then
+                    table.insert(list, { name = displayName, enabled = true })
+                end
+            end
+        end
+    end
+    seedInto(farm.scanPlayers,  s.favouritePlayers)
+    seedInto(farm.scanEntities, s.favouriteEntities)
+end
+
 local function ensureCooledTreeSpots()
     if type(settings.cooledTreeSpots) ~= "table" then settings.cooledTreeSpots = {} end
     return settings.cooledTreeSpots
@@ -620,6 +751,132 @@ local function ensureFarmForCooledTreeSpot(spot)
     farm.landId = land.id
     farm.landName = land.name
     farm.isCooledTreeSpot = true
+    saveFarm(farm)
+    return farm
+end
+
+-- Find or create a single fishing farm per zone. Unlike cooled tree spots
+-- (which are pinned to manually-captured positions), fish move around so
+-- we just bind one farm to each zone the user fishes in. The farm is
+-- anchored at the player's first hover position in that zone.
+function FarmSystem._ensureFarmForFishZone(pos)
+    if not pos then return nil end
+    local zName = zoneName(pos.zone)
+    for _, f in ipairs(farms or {}) do
+        if f.isFishSpot and f.fishZoneName == zName then
+            return f
+        end
+    end
+    local farm = createFarm("Fishing - " .. tostring(zName), {
+        zone = zName,
+        sextants = pos.sextants or "",
+        worldX = pos.worldX or 0,
+        worldY = pos.worldY or 0,
+        worldZ = pos.worldZ or 0,
+    })
+    farm.isFishSpot = true
+    farm.fishZoneName = zName
+    saveFarm(farm)
+    return farm
+end
+
+-- One Gamekeeper farm per zone, same pattern as fish.
+function FarmSystem._ensureFarmForGamekeeperZone(pos)
+    if not pos then return nil end
+    local zName = zoneName(pos.zone)
+    for _, f in ipairs(farms or {}) do
+        if f.isGamekeeperSpot and f.gamekeeperZoneName == zName then
+            return f
+        end
+    end
+    local farm = createFarm("Gamekeeper - " .. tostring(zName), {
+        zone = zName,
+        sextants = pos.sextants or "",
+        worldX = pos.worldX or 0,
+        worldY = pos.worldY or 0,
+        worldZ = pos.worldZ or 0,
+    })
+    farm.isGamekeeperSpot = true
+    farm.gamekeeperZoneName = zName
+    saveFarm(farm)
+    return farm
+end
+
+-- Dried Up Mineral Water — same pattern as cooled tree trunks: positions
+-- are user-captured, hovers are routed to the nearest captured spot in
+-- the same zone. All helpers attached to FarmSystem to stay clear of the
+-- module-level local cap.
+function FarmSystem._isDriedMineralWaterInfo(info)
+    if not info or not info.name then return false end
+    return tostring(info.name):lower():find("dried up mineral water", 1, true) ~= nil
+end
+
+function FarmSystem._ensureMineralWaterSpots()
+    if type(settings.mineralWaterSpots) ~= "table" then settings.mineralWaterSpots = {} end
+    return settings.mineralWaterSpots
+end
+
+function FarmSystem._makeMineralWaterSpot(pos, customName)
+    local spots = FarmSystem._ensureMineralWaterSpots()
+    local zone = zoneName(pos.zone)
+    local name = customName
+    if not name or name == "" then
+        name = string.format("Dried Mineral Water %s #%d", zone, #spots + 1)
+    end
+    local spot = {
+        id = "mineral_water_" .. tostring(api.Time:GetUiMsec()):gsub("%.", ""),
+        name = name,
+        zone = pos.zone,
+        zoneName = zone,
+        coords = nil,
+        sextants = pos.sextants or "",
+        worldX = pos.worldX or 0,
+        worldY = pos.worldY or 0,
+        worldZ = pos.worldZ or 0,
+        isMineralWaterSpot = true,
+    }
+    table.insert(spots, spot)
+    saveSettings()
+    return spot
+end
+
+function FarmSystem._findNearestMineralWaterSpot(pos)
+    local best, bestD2
+    for _, spot in ipairs(FarmSystem._ensureMineralWaterSpots()) do
+        if spot and spot.worldX and spot.worldY then
+            local sameZone = not pos.zone or not spot.zone or tostring(spot.zone) == tostring(pos.zone)
+                          or (spot.zoneName and spot.zoneName == zoneName(pos.zone))
+            if sameZone then
+                local d2 = distance2(spot, pos)
+                if not bestD2 or d2 < bestD2 then
+                    best, bestD2 = spot, d2
+                end
+            end
+        end
+    end
+    return best, bestD2
+end
+
+function FarmSystem._ensureFarmForMineralWaterSpot(spot)
+    local landId = spot.id
+    local existing = getFarmByLandId(landId)
+    if existing then
+        existing.name = spot.name or existing.name
+        existing.zone = spot.zoneName or existing.zone
+        existing.isMineralWaterSpot = true
+        return existing
+    end
+
+    local farm = createFarm(spot.name or "Dried Mineral Water", {
+        zone = spot.zoneName or spot.zone,
+        sextants = spot.sextants or "",
+        worldX = spot.worldX or 0,
+        worldY = spot.worldY or 0,
+        worldZ = spot.worldZ or 0,
+    })
+    farm.landId = landId
+    farm.landName = spot.name
+    farm.isMineralWaterSpot = true
     saveFarm(farm)
     return farm
 end
@@ -1019,9 +1276,11 @@ local function tryAddDoodad(farm, info)
     local owner = info.owner or ""
     local name  = normalizeName(info.name)
 
-    -- Ensure per-farm filter lists exist
+    -- Ensure per-farm filter lists exist + global favourites are seeded so
+    -- they appear in every farm's lists immediately, even before any scan.
     if not farm.scanPlayers  then farm.scanPlayers  = {} end
     if not farm.scanEntities then farm.scanEntities = {} end
+    if FarmSystem._seedFavourites then FarmSystem._seedFavourites(farm) end
 
     local defaultEnabled = farm.scanDefaultEnabled
     if defaultEnabled == nil then defaultEnabled = true end
@@ -1029,15 +1288,20 @@ local function tryAddDoodad(farm, info)
     local populateFilter = farm.populateFilter
     if populateFilter == nil then populateFilter = true end
 
+    local filterListsChanged = false
+
     -- Auto-register owner in scanPlayers if new (only if filter is not locked)
     local playerEntry = nil
     for _, e in ipairs(farm.scanPlayers) do
         if e.name:lower() == owner:lower() then playerEntry = e; break end
     end
     if not playerEntry then
-        if not populateFilter then return false end
+        -- Favourites bypass the populateFilter lock: they should always
+        -- appear in every farm's filter list.
+        if not populateFilter and not FarmSystem._isFavouritePlayer(owner) then return false end
         playerEntry = { name = owner, enabled = true }
         table.insert(farm.scanPlayers, playerEntry)
+        filterListsChanged = true
     end
 
     -- Auto-register entity name in scanEntities if new (only if filter is not locked)
@@ -1046,16 +1310,27 @@ local function tryAddDoodad(farm, info)
         if e.name:lower() == name:lower() then entityEntry = e; break end
     end
     if not entityEntry then
-        if not populateFilter then return false end
+        if not populateFilter and not FarmSystem._isFavouriteEntity(name) then return false end
         entityEntry = { name = name, enabled = true }
         table.insert(farm.scanEntities, entityEntry)
+        filterListsChanged = true
     end
 
-    -- Reject if either filter is enabled and the entry is disabled
+    -- Live-refresh the filter window if it's open on this farm and we
+    -- just added new entries. Without this the user has to close & reopen
+    -- the window to see freshly-scanned names.
+    if filterListsChanged and filterWin and filterWin._currentFarm == farm
+       and filterWin.IsVisible and filterWin:IsVisible()
+       and FarmSystem._rebuildFilterLists then
+        pcall(function() FarmSystem._rebuildFilterLists(farm) end)
+    end
+
+    -- Reject if either filter is enabled and the entry is disabled.
+    -- Favourites always pass regardless of per-farm enabled state.
     local filterPlayers  = farm.filterPlayersEnabled;  if filterPlayers  == nil then filterPlayers  = true end
     local filterEntities = farm.filterEntitiesEnabled; if filterEntities == nil then filterEntities = true end
-    if filterPlayers  and not playerEntry.enabled then return false end
-    if filterEntities and not entityEntry.enabled then return false end
+    if filterPlayers  and not playerEntry.enabled and not FarmSystem._isFavouritePlayer(owner) then return false end
+    if filterEntities and not entityEntry.enabled and not FarmSystem._isFavouriteEntity(name) then return false end
 
     -- Dedup
     for _, d in ipairs(farm.doodads or {}) do
@@ -1088,10 +1363,16 @@ local function tryAddDoodad(farm, info)
         .. ":" .. tostring(inserted.name or "")
         .. ":" .. tostring(inserted.owner or "")
     saveFarm(farm)
+    -- Live-refresh the farm list so newly auto-created farms (cooled
+    -- trunks, fish, gamekeeper, mineral water) appear without having to
+    -- close & reopen the Farm Tracker window.
+    if mainWin and mainWin.IsVisible and mainWin:IsVisible() then
+        pcall(rebuildFarmList)
+    end
     return true
 end
 
-local AUTO_W = 680
+local AUTO_W = 760
 local AUTO_H = 220
 local AUTO_ROWS = 11
 local AUTO_LOCATION_X = 30
@@ -1101,8 +1382,8 @@ local AUTO_ENTITY_W = 150
 local AUTO_QTY_X = 402
 local AUTO_QTY_W = 34
 local AUTO_EARLIEST_X = 442
-local AUTO_TIME_W = 72
-local AUTO_LATEST_X = 520
+local AUTO_TIME_W = 110
+local AUTO_LATEST_X = 558
 
 local function updateAutotrackerTimeLabels()
     for _, item in ipairs(autotrackerTimeLbls) do
@@ -1125,6 +1406,31 @@ local function updateAutotrackerTimeLabels()
     end
 end
 
+-- Color for an autotracker group's farm/name labels. Special-case farms
+-- (cooled trunks, fish, gamekeeper) get a distinguishing tint so they're
+-- visually grouped at a glance. FONT_COLOR.YELLOW is engine-provided;
+-- blue/green are direct RGBA via style:SetColor since the engine table
+-- doesn't expose them by name in this build.
+function FarmSystem._applyGroupLabelColor(widget, group)
+    if not widget then return end
+    if group.fish and widget.style and widget.style.SetColor then
+        widget.style:SetColor(0.42, 0.72, 1.00, 1.00)
+        return
+    end
+    if group.gamekeeper and widget.style and widget.style.SetColor then
+        widget.style:SetColor(0.40, 0.92, 0.55, 1.00)
+        return
+    end
+    if group.mineralWater and widget.style and widget.style.SetColor then
+        -- Cyan-ish, distinct from fish blue and gamekeeper green.
+        widget.style:SetColor(0.55, 0.90, 0.95, 1.00)
+        return
+    end
+    if ApplyTextColor and FONT_COLOR then
+        ApplyTextColor(widget, group.cooled and (FONT_COLOR.YELLOW or FONT_COLOR.DEFAULT) or FONT_COLOR.DEFAULT)
+    end
+end
+
 local function buildAutotrackerRenderList()
     local rows = {}
     for _, farmId in ipairs(autotrackerFarmOrder) do
@@ -1134,7 +1440,13 @@ local function buildAutotrackerRenderList()
             for _, d in ipairs(farm.doodads) do
                 local key = farm.id .. "\0" .. d.name
                 if not groups[key] then
-                    groups[key] = { key=key, farm=farm, name=d.name, entries={}, cooled=farm.isCooledTreeSpot or isCooledTreeInfo(d) }
+                    groups[key] = {
+                        key=key, farm=farm, name=d.name, entries={},
+                        cooled = farm.isCooledTreeSpot or isCooledTreeInfo(d),
+                        fish = farm.isFishSpot or FarmSystem._isFishInfo(d),
+                        gamekeeper = farm.isGamekeeperSpot or FarmSystem._isGamekeeperInfo(d),
+                        mineralWater = farm.isMineralWaterSpot or FarmSystem._isDriedMineralWaterInfo(d),
+                    }
                     table.insert(groupOrder, key)
                 end
                 table.insert(groups[key].entries, d)
@@ -1155,7 +1467,13 @@ local function buildAutotrackerRenderList()
                 end
             end
         elseif farm then
-            local group = { key=farm.id .. "\0_empty", farm=farm, name="-", entries={}, cooled=farm.isCooledTreeSpot }
+            local group = {
+                key=farm.id .. "\0_empty", farm=farm, name="-", entries={},
+                cooled = farm.isCooledTreeSpot,
+                fish = farm.isFishSpot,
+                gamekeeper = farm.isGamekeeperSpot,
+                mineralWater = farm.isMineralWaterSpot,
+            }
             table.insert(rows, { type="header", group=group })
         end
     end
@@ -1273,7 +1591,7 @@ rebuildAutotrackerWindow = function()
     autotrackerRows = {}
     autotrackerTimeLbls = {}
 
-    local statusText = settings.autotrackerEnabled and "Tracking" or "Paused"
+    local statusText = settings.autotrackerEnabled and "Tracking Window" or "Tracking Window (Paused)"
     if autotrackerWin._titleLbl then autotrackerWin._titleLbl:SetText(statusText) end
 
     local renderRows = buildAutotrackerRenderList()
@@ -1285,7 +1603,7 @@ rebuildAutotrackerWindow = function()
     if autotrackerWin._nextBtn and autotrackerWin._nextBtn.Enable then autotrackerWin._nextBtn:Enable(autotrackerPage < totalPages) end
 
     if #renderRows == 0 then
-        autotrackerWin:SetExtent(AUTO_W, 105)
+        autotrackerWin:SetExtent(AUTO_W, 125)
         local empty = autotrackerWin:CreateChildWidget("label", "tt_auto_empty_" .. tostring(api.Time:GetUiMsec()), 0, true)
         empty:SetText(settings.autotrackerEnabled and "Waiting for hover..." or "Autotracker is off")
         empty:SetExtent(AUTO_W - 24, 20)
@@ -1300,7 +1618,7 @@ rebuildAutotrackerWindow = function()
     local startIdx = (autotrackerPage - 1) * AUTO_ROWS + 1
     local endIdx = math.min(startIdx + AUTO_ROWS - 1, #renderRows)
     local visibleRows = math.max(1, endIdx - startIdx + 1)
-    autotrackerWin:SetExtent(AUTO_W, 92 + (visibleRows * 24))
+    autotrackerWin:SetExtent(AUTO_W, 110 + (visibleRows * 24))
     for idx = startIdx, endIdx do
         local item = renderRows[idx]
         local rowIndex = idx - startIdx + 1
@@ -1347,7 +1665,7 @@ rebuildAutotrackerWindow = function()
             farmLbl:SetExtent(AUTO_LOCATION_W, 22)
             farmLbl:AddAnchor("LEFT", row, AUTO_LOCATION_X, 0)
             if farmLbl.style then farmLbl.style:SetFontSize(FONT_SIZE.SMALL or 14); farmLbl.style:SetAlign(ALIGN.LEFT) end
-            if ApplyTextColor and FONT_COLOR then ApplyTextColor(farmLbl, group.cooled and (FONT_COLOR.YELLOW or FONT_COLOR.DEFAULT) or FONT_COLOR.DEFAULT) end
+            FarmSystem._applyGroupLabelColor(farmLbl, group)
             farmLbl:Show(true)
 
             local nameLbl = row:CreateChildWidget("label", "tt_auto_name_" .. rowIndex, 0, true)
@@ -1355,7 +1673,7 @@ rebuildAutotrackerWindow = function()
             nameLbl:SetExtent(AUTO_ENTITY_W, 22)
             nameLbl:AddAnchor("LEFT", row, AUTO_ENTITY_X, 0)
             if nameLbl.style then nameLbl.style:SetFontSize(FONT_SIZE.SMALL or 14); nameLbl.style:SetAlign(ALIGN.LEFT) end
-            if ApplyTextColor and FONT_COLOR then ApplyTextColor(nameLbl, group.cooled and (FONT_COLOR.YELLOW or FONT_COLOR.DEFAULT) or FONT_COLOR.DEFAULT) end
+            FarmSystem._applyGroupLabelColor(nameLbl, group)
             nameLbl:Show(true)
 
             local qtyLbl = row:CreateChildWidget("label", "tt_auto_qty_" .. rowIndex, 0, true)
@@ -1471,16 +1789,43 @@ local function ensureAutotrackerWindow()
     -- Keep the bar's TRACKING ON/OFF label + tone in sync with this window's
     -- visibility. Fires for any close path (X button, Show(false) elsewhere)
     -- without having to wire each call site.
-    function autotrackerWin:OnShow()
-        if FarmSystem.floatActions and FarmSystem.floatActions.rebuild then
-            FarmSystem.floatActions.rebuild()
+    --
+    -- Two safety gates here:
+    --
+    -- 1. Stale-session bail. The handler captures the OLD `FarmSystem`
+    --    table via upvalue, so after /reload the engine can still fire
+    --    OnShow/OnHide on the orphan tracking window and re-trigger OLD
+    --    floatActions.rebuild. Compare the captured bar.mySession against
+    --    the live disk value and bail when they diverge.
+    --
+    -- 2. Don't re-create during shutdown. /reload's OnUnload calls
+    --    floatActions.destroy() (which sets fa.bar.widget = nil), THEN
+    --    calls autotrackerWin:Show(false) — which fires OnHide HERE,
+    --    which calls fa.rebuild(), which sees nil widget and calls
+    --    fa.create() — birthing a phantom orphan bar mid-shutdown that
+    --    nothing will clean up. That phantom is the duplicate the user
+    --    sees post-reload (in addition to the real new bar). We bail if
+    --    the bar widget is already gone.
+    local function shouldSkipBarRebuild()
+        local fa = FarmSystem and FarmSystem.floatActions
+        if not (fa and fa.bar) then return true end
+        local cur = api.GetSettings("tax_tracker") or {}
+        if fa.bar.mySession and (cur.barSession or 0) ~= fa.bar.mySession then
+            return true  -- stale handler from a prior load
         end
+        if not fa.bar.widget then
+            return true  -- bar destroyed; don't resurrect it
+        end
+        return false
+    end
+    function autotrackerWin:OnShow()
+        if shouldSkipBarRebuild() then return end
+        FarmSystem.floatActions.rebuild()
     end
     autotrackerWin:SetHandler("OnShow", autotrackerWin.OnShow)
     function autotrackerWin:OnHide()
-        if FarmSystem.floatActions and FarmSystem.floatActions.rebuild then
-            FarmSystem.floatActions.rebuild()
-        end
+        if shouldSkipBarRebuild() then return end
+        FarmSystem.floatActions.rebuild()
     end
     autotrackerWin:SetHandler("OnHide", autotrackerWin.OnHide)
 
@@ -1490,7 +1835,7 @@ local function ensureAutotrackerWindow()
     bg:Show(true)
 
     local titleLbl = autotrackerWin:CreateChildWidget("label", "tt_auto_title", 0, true)
-    titleLbl:SetText("Tracking")
+    titleLbl:SetText("Tracking Window")
     titleLbl:SetExtent(300, 24)
     titleLbl:AddAnchor("TOPLEFT", autotrackerWin, 12, 10)
     if titleLbl.style then titleLbl.style:SetFontSize(FONT_SIZE.LARGE or 18); titleLbl.style:SetAlign(ALIGN.LEFT) end
@@ -1590,21 +1935,30 @@ showAutotrackerWindow = function()
 end
 
 local function addAutotrackerItem(farm, entryName, isCooled)
-    if not isCooled then return end
-    if farm and farm.id and not autotrackerFarmIds[farm.id] then
+    -- Auto-register the farm in the tracker only for the special cases
+    -- (cooled trunks, fish, gamekeeper) — they shouldn't require the user
+    -- to manually pin them. Regular farms get pinned via the detail-window
+    -- "Show in Tracker" path.
+    if isCooled and farm and farm.id and not autotrackerFarmIds[farm.id] then
         autotrackerFarmIds[farm.id] = true
         table.insert(autotrackerFarmOrder, farm.id)
     end
-    if settings.autotrackerEnabled then showAutotrackerWindow() end
+    if isCooled and settings.autotrackerEnabled then showAutotrackerWindow() end
+    -- Always rebuild if the tracking window is showing — this fixes the
+    -- case where a regular (already-pinned) farm's qty didn't update
+    -- until the user expanded/collapsed a group.
+    if autotrackerWin and autotrackerWin.IsVisible and autotrackerWin:IsVisible() then
+        pcall(rebuildAutotrackerWindow)
+    end
 end
 
 local function updateAutotrackerButton()
-    if autotrackerBtn then autotrackerBtn:SetText(settings.autotrackerEnabled and "Autotracker: ON" or "Autotracker: OFF") end
-    -- Bar's AUTO row label + tone are owned by FarmSystem.floatActions.rebuild()
+    if autotrackerBtn then autotrackerBtn:SetText(settings.autotrackerEnabled and "Autotracker ON" or "Autotracker OFF") end
+    -- Bar's Autotracker row label + tone are owned by FarmSystem.floatActions.rebuild()
     if FarmSystem.floatActions and FarmSystem.floatActions.rebuild then
         FarmSystem.floatActions.rebuild()
     end
-    local text = settings.autotrackerEnabled and "Autotracker: ON" or "Autotracker: OFF"
+    local text = settings.autotrackerEnabled and "Autotracker ON" or "Autotracker OFF"
     for i = #externalAutotrackerButtons, 1, -1 do
         local btn = externalAutotrackerButtons[i]
         local ok = btn and btn.SetText and pcall(function()
@@ -2145,6 +2499,12 @@ local function setAutotrackerEnabled(enabled)
     saveSettings()
     setDoodadListenerEnabled(settings.autotrackerEnabled)
     updateAutotrackerButton()
+    -- Live-refresh tracking-window title so the "(Paused)" suffix flips
+    -- the moment the toggle changes, not on the next user interaction.
+    if autotrackerWin and autotrackerWin._titleLbl then
+        local statusText = settings.autotrackerEnabled and "Tracking Window" or "Tracking Window (Paused)"
+        pcall(function() autotrackerWin._titleLbl:SetText(statusText) end)
+    end
     -- Note: AUTO toggle controls only the doodad scanner now. The tracker
     -- window's visibility is owned by the bar's TRACKING toggle (or the
     -- window's own X button). Don't force-hide here — that was old coupling
@@ -2155,6 +2515,9 @@ end
 local function refreshSettingsLabels()
     if settingsCooledSpotLbl then
         settingsCooledSpotLbl:SetText("Captured cooled tree spots: " .. tostring(#ensureCooledTreeSpots()))
+    end
+    if FarmSystem._settingsMineralLbl then
+        FarmSystem._settingsMineralLbl:SetText("Captured mineral water spots: " .. tostring(#FarmSystem._ensureMineralWaterSpots()))
     end
 end
 
@@ -2177,7 +2540,9 @@ local function captureCooledTreeSpot()
     local spot = makeCooledTreeSpot(pos, getSpotCaptureName())
     if settingsSpotNameEdit and settingsSpotNameEdit.SetText then settingsSpotNameEdit:SetText("") end
     refreshSettingsLabels()
-    if spotListWin and spotListWin:IsVisible() then rebuildSpotListWindow() end
+    if spotListWin and spotListWin:IsVisible() and spotListWin._spotType == "cooled" then
+        rebuildSpotListWindow()
+    end
     log("Captured cooled tree spot: " .. tostring(spot.name))
     return spot
 end
@@ -2189,14 +2554,27 @@ rebuildSpotListWindow = function()
     end
     spotListRows = {}
 
-    local spots = ensureCooledTreeSpots()
+    -- Window is reused for both cooled-tree and mineral-water spot lists.
+    -- The opener stamps `_spotType` on the window before calling this.
+    local spotType = spotListWin._spotType or "cooled"
+    local spots, defaultName, emptyText, settingsKey
+    if spotType == "mineral" then
+        spots = FarmSystem._ensureMineralWaterSpots()
+        defaultName = "Dried Mineral Water"
+        emptyText = "No mineral water spots captured."
+        settingsKey = "mineralWaterSpots"
+    else
+        spots = ensureCooledTreeSpots()
+        defaultName = "Cooled Tree Trunk"
+        emptyText = "No cooled tree spots captured."
+        settingsKey = "cooledTreeSpots"
+    end
     if #spots == 0 then
         local empty = spotListWin:CreateChildWidget("label", "tt_spot_empty_" .. tostring(api.Time:GetUiMsec()), 0, true)
-        empty:SetText("No cooled tree spots captured.")
-        empty:SetExtent(460, 22)
-        empty:AddAnchor("TOPLEFT", spotListWin, 18, 48)
-        if empty.style then empty.style:SetFontSize(FONT_SIZE.MIDDLE or 16); empty.style:SetAlign(ALIGN.LEFT) end
-        if ApplyTextColor and FONT_COLOR then ApplyTextColor(empty, FONT_COLOR.DEFAULT) end
+        empty:SetText(emptyText)
+        empty:SetExtent(480, 22)
+        empty:AddAnchor("TOPLEFT", spotListWin, 28, 86)
+        ftStyleLabel(empty, FARM_UI.muted, 12, ALIGN.LEFT)
         empty:Show(true)
         table.insert(spotListRows, empty)
         return
@@ -2216,45 +2594,51 @@ rebuildSpotListWindow = function()
     for i = startIdx, endIdx do
         local spot = spots[i]
         local rowIndex = i - startIdx + 1
-        local y = 68 + ((rowIndex - 1) * 28)
+        local y = 78 + ((rowIndex - 1) * 28)
         local row = spotListWin:CreateChildWidget("emptywidget", "tt_spot_row_" .. tostring(api.Time:GetUiMsec()) .. "_" .. i, 0, true)
-        row:SetExtent(500, 26)
-        row:AddAnchor("TOPLEFT", spotListWin, 12, y)
+        row:SetExtent(504, 26)
+        row:AddAnchor("TOPLEFT", spotListWin, 18, y)
+        local tone = rowIndex % 2 == 0 and FARM_UI.rowEven or FARM_UI.rowOdd
+        local shade = row:CreateColorDrawable(tone[1], tone[2], tone[3], tone[4], "background")
+        shade:AddAnchor("TOPLEFT", row, 0, 0)
+        shade:AddAnchor("BOTTOMRIGHT", row, 0, 0)
+        shade:Show(true)
         row:Show(true)
         table.insert(spotListRows, row)
 
         local nameLbl = row:CreateChildWidget("label", "tt_spot_name_" .. i, 0, true)
-        nameLbl:SetText(spot.name or "Cooled Tree Trunk")
+        nameLbl:SetText(spot.name or defaultName)
         nameLbl:SetExtent(190, 24)
-        nameLbl:AddAnchor("LEFT", row, 4, 0)
-        if nameLbl.style then nameLbl.style:SetFontSize(FONT_SIZE.SMALL or 14); nameLbl.style:SetAlign(ALIGN.LEFT) end
-        if ApplyTextColor and FONT_COLOR then ApplyTextColor(nameLbl, FONT_COLOR.DEFAULT) end
+        nameLbl:AddAnchor("LEFT", row, 8, 0)
+        nameLbl:SetAutoResize(false)
+        ftStyleLabel(nameLbl, FARM_UI.white, 12, ALIGN.LEFT)
         nameLbl:Show(true)
 
         local zoneLbl = row:CreateChildWidget("label", "tt_spot_zone_" .. i, 0, true)
         zoneLbl:SetText(spot.zoneName or zoneName(spot.zone))
-        zoneLbl:SetExtent(90, 24)
-        zoneLbl:AddAnchor("LEFT", row, 200, 0)
-        if zoneLbl.style then zoneLbl.style:SetFontSize(FONT_SIZE.SMALL or 14); zoneLbl.style:SetAlign(ALIGN.LEFT) end
-        if ApplyTextColor and FONT_COLOR then ApplyTextColor(zoneLbl, FONT_COLOR.DEFAULT) end
+        zoneLbl:SetExtent(110, 24)
+        zoneLbl:AddAnchor("LEFT", row, 204, 0)
+        zoneLbl:SetAutoResize(false)
+        ftStyleLabel(zoneLbl, FARM_UI.muted, 12, ALIGN.LEFT)
         zoneLbl:Show(true)
 
         local coordLbl = row:CreateChildWidget("label", "tt_spot_coord_" .. i, 0, true)
         coordLbl:SetText(spot.sextants or "")
-        coordLbl:SetExtent(150, 24)
-        coordLbl:AddAnchor("LEFT", row, 294, 0)
-        if coordLbl.style then coordLbl.style:SetFontSize(FONT_SIZE.SMALL or 14); coordLbl.style:SetAlign(ALIGN.LEFT) end
-        if ApplyTextColor and FONT_COLOR then ApplyTextColor(coordLbl, FONT_COLOR.DEFAULT) end
+        coordLbl:SetExtent(140, 24)
+        coordLbl:AddAnchor("LEFT", row, 318, 0)
+        coordLbl:SetAutoResize(false)
+        ftStyleLabel(coordLbl, FARM_UI.muted, 12, ALIGN.LEFT)
         coordLbl:Show(true)
 
         local delBtn = row:CreateChildWidget("button", "tt_spot_del_" .. i, 0, true)
-        if ApplyButtonSkin and BUTTON_BASIC then ApplyButtonSkin(delBtn, BUTTON_BASIC.DEFAULT) end
-        delBtn:SetExtent(48, 24)
-        delBtn:AddAnchor("RIGHT", row, -2, 0)
-        delBtn:SetText("Del")
+        delBtn:SetExtent(44, 22)
+        delBtn:AddAnchor("RIGHT", row, -6, 0)
+        ftStyleButton(delBtn, "Del", FARM_UI.red)
         local capturedIndex = i
         function delBtn:OnClick()
-            table.remove(settings.cooledTreeSpots, capturedIndex)
+            if settings[settingsKey] then
+                table.remove(settings[settingsKey], capturedIndex)
+            end
             saveSettings()
             refreshSettingsLabels()
             rebuildSpotListWindow()
@@ -2264,31 +2648,42 @@ rebuildSpotListWindow = function()
     end
 end
 
-local function openSpotListWindow()
+local function openSpotListWindow(spotType)
+    spotType = spotType or "cooled"
     if not spotListWin then
-        spotListWin = api.Interface:CreateWindow("tax_tracker_tree_spot_list", "Cooled Tree Spots", 540, 340)
+        spotListWin = api.Interface:CreateWindow("tax_tracker_tree_spot_list", "Captured Spots", 540, 392)
         spotListWin:RemoveAllAnchors()
         spotListWin:AddAnchor("CENTER", "UIParent", 0, 0)
         spotListWin:SetHandler("OnCloseByEsc", function() spotListWin:Show(false) end)
 
-        local bg = spotListWin:CreateColorDrawable(0, 0, 0, 0.55, "background")
-        bg:AddAnchor("TOPLEFT", spotListWin, 8, 36)
-        bg:AddAnchor("BOTTOMRIGHT", spotListWin, -8, -8)
-        bg:Show(true)
+        -- Panel chrome following the FARM_UI stylesheet (matches the Filter
+        -- and Settings windows). Geometry:
+        --   y=42..68    header strip (column titles)
+        --   y=72..342   list panel (9 rows at 28px from y=78)
+        --   y=346..374  footer strip (prev / page / next)
+        ftAddPanel(spotListWin, "tt_spot_root",   12, 42, 516, 338, FARM_UI.panel)
+        ftAddPanel(spotListWin, "tt_spot_hdr",    18, 42, 504, 26,  FARM_UI.header)
+        ftAddPanel(spotListWin, "tt_spot_list",   18, 72, 504, 270, FARM_UI.listPanel)
+        ftAddPanel(spotListWin, "tt_spot_footer", 18, 346, 504, 28, FARM_UI.groupActions)
 
-        local hdr = spotListWin:CreateChildWidget("label", "tt_spot_hdr", 0, true)
-        hdr:SetText("Name                         Zone        Coordinates")
-        hdr:SetExtent(500, 20)
-        hdr:AddAnchor("TOPLEFT", spotListWin, 18, 42)
-        if hdr.style then hdr.style:SetFontSize(FONT_SIZE.SMALL or 14); hdr.style:SetAlign(ALIGN.LEFT) end
-        if ApplyTextColor and FONT_COLOR then ApplyTextColor(hdr, FONT_COLOR.DEFAULT) end
-        hdr:Show(true)
+        -- Column header labels in gold
+        local function colHdr(id, text, x, w)
+            local l = spotListWin:CreateChildWidget("label", id, 0, true)
+            l:SetText(text)
+            l:SetExtent(w, 22)
+            l:AddAnchor("TOPLEFT", spotListWin, x, 46)
+            l:SetAutoResize(false)
+            ftStyleLabel(l, FARM_UI.gold, 12, ALIGN.LEFT)
+            l:Show(true)
+        end
+        colHdr("tt_spot_h_name",  "Name",        26,  190)
+        colHdr("tt_spot_h_zone",  "Zone",        222, 110)
+        colHdr("tt_spot_h_coord", "Coordinates", 336, 140)
+        colHdr("tt_spot_h_del",   "",            486,  44)
 
         local prevBtn = spotListWin:CreateChildWidget("button", "tt_spot_prev", 0, true)
-        if ApplyButtonSkin and BUTTON_BASIC then ApplyButtonSkin(prevBtn, BUTTON_BASIC.DEFAULT) end
-        prevBtn:SetExtent(80, 26)
-        prevBtn:AddAnchor("BOTTOMLEFT", spotListWin, 18, -14)
-        prevBtn:SetText("Prev")
+        ftPlace(prevBtn, "BOTTOMLEFT", spotListWin, nil, 28, -18, 76, 22)
+        ftStyleButton(prevBtn, "Prev", FARM_UI.button)
         function prevBtn:OnClick()
             spotListPage = spotListPage - 1
             rebuildSpotListWindow()
@@ -2298,19 +2693,17 @@ local function openSpotListWindow()
         spotListWin._prevBtn = prevBtn
 
         local pageLbl = spotListWin:CreateChildWidget("label", "tt_spot_page", 0, true)
-        pageLbl:SetExtent(80, 26)
-        pageLbl:AddAnchor("BOTTOM", spotListWin, 0, -14)
+        pageLbl:SetExtent(100, 22)
+        pageLbl:AddAnchor("BOTTOM", spotListWin, 0, -18)
+        pageLbl:SetAutoResize(false)
         pageLbl:SetText("1 / 1")
-        if pageLbl.style then pageLbl.style:SetFontSize(FONT_SIZE.SMALL or 14); pageLbl.style:SetAlign(ALIGN.CENTER) end
-        if ApplyTextColor and FONT_COLOR then ApplyTextColor(pageLbl, FONT_COLOR.DEFAULT) end
+        ftStyleLabel(pageLbl, FARM_UI.muted, 12, ALIGN.CENTER)
         pageLbl:Show(true)
         spotListWin._pageLbl = pageLbl
 
         local nextBtn = spotListWin:CreateChildWidget("button", "tt_spot_next", 0, true)
-        if ApplyButtonSkin and BUTTON_BASIC then ApplyButtonSkin(nextBtn, BUTTON_BASIC.DEFAULT) end
-        nextBtn:SetExtent(80, 26)
-        nextBtn:AddAnchor("BOTTOMRIGHT", spotListWin, -18, -14)
-        nextBtn:SetText("Next")
+        ftPlace(nextBtn, "BOTTOMRIGHT", spotListWin, nil, -28, -18, 76, 22)
+        ftStyleButton(nextBtn, "Next", FARM_UI.button)
         function nextBtn:OnClick()
             spotListPage = spotListPage + 1
             rebuildSpotListWindow()
@@ -2320,9 +2713,42 @@ local function openSpotListWindow()
         spotListWin._nextBtn = nextBtn
     end
 
+    spotListWin._spotType = spotType
+    if spotListWin.SetTitle then
+        if spotType == "mineral" then
+            spotListWin:SetTitle("Dried Mineral Water Spots")
+        else
+            spotListWin:SetTitle("Cooled Tree Spots")
+        end
+    end
     spotListPage = 1
     rebuildSpotListWindow()
     spotListWin:Show(true)
+end
+
+-- Capture a mineral-water spot at the player's current position. Mirrors
+-- captureCooledTreeSpot. Lives on FarmSystem to avoid module-locals.
+function FarmSystem._captureMineralWaterSpot()
+    local pos = capturePlayerPosition()
+    if not pos then
+        log("Could not capture mineral water spot: player position unavailable.")
+        return nil
+    end
+    local customName = nil
+    if FarmSystem._settingsMineralEdit and FarmSystem._settingsMineralEdit.GetText then
+        local text = FarmSystem._settingsMineralEdit:GetText()
+        if text and text ~= "" then customName = text end
+    end
+    local spot = FarmSystem._makeMineralWaterSpot(pos, customName)
+    if FarmSystem._settingsMineralEdit and FarmSystem._settingsMineralEdit.SetText then
+        FarmSystem._settingsMineralEdit:SetText("")
+    end
+    refreshSettingsLabels()
+    if spotListWin and spotListWin:IsVisible() and spotListWin._spotType == "mineral" then
+        rebuildSpotListWindow()
+    end
+    log("Captured mineral water spot: " .. tostring(spot.name))
+    return spot
 end
 
 -- ============================================================
@@ -2362,6 +2788,44 @@ local function OnUpdate(dt)
                                 if detailWin and detailWin:IsVisible() and detailFarmId == cooledFarm.id then
                                     rebuildDoodadList()
                                 end
+                            end
+                        end
+                    end
+                end
+            elseif FarmSystem._isFishInfo(info) then
+                local pos = capturePlayerPosition()
+                if pos then
+                    local fishFarm = FarmSystem._ensureFarmForFishZone(pos)
+                    if fishFarm and tryAddDoodad(fishFarm, info) then
+                        addAutotrackerItem(fishFarm, info.name, true)
+                        if detailWin and detailWin:IsVisible() and detailFarmId == fishFarm.id then
+                            rebuildDoodadList()
+                        end
+                    end
+                end
+            elseif FarmSystem._isGamekeeperInfo(info) then
+                local pos = capturePlayerPosition()
+                if pos then
+                    local gkFarm = FarmSystem._ensureFarmForGamekeeperZone(pos)
+                    if gkFarm and tryAddDoodad(gkFarm, info) then
+                        addAutotrackerItem(gkFarm, info.name, true)
+                        if detailWin and detailWin:IsVisible() and detailFarmId == gkFarm.id then
+                            rebuildDoodadList()
+                        end
+                    end
+                end
+            elseif FarmSystem._isDriedMineralWaterInfo(info) then
+                local pos = capturePlayerPosition()
+                if pos then
+                    local spot = FarmSystem._findNearestMineralWaterSpot(pos)
+                    if not spot then
+                        log("No captured mineral water spot in this zone. Capture the spot first in settings.")
+                    else
+                        local mwFarm = FarmSystem._ensureFarmForMineralWaterSpot(spot)
+                        if mwFarm and tryAddDoodad(mwFarm, info) then
+                            addAutotrackerItem(mwFarm, info.name, true)
+                            if detailWin and detailWin:IsVisible() and detailFarmId == mwFarm.id then
+                                rebuildDoodadList()
                             end
                         end
                     end
@@ -2463,6 +2927,11 @@ end
 
 local function rebuildFilterLists(farm)
     if not filterWin then return end
+    -- Make sure global favourites appear in this farm's filter lists. Doing
+    -- it here covers the "open filter on a fresh farm" case; tryAddDoodad
+    -- also calls _seedFavourites so they appear without ever opening the
+    -- window.
+    if FarmSystem._seedFavourites then FarmSystem._seedFavourites(farm) end
     filterRebuildId = filterRebuildId + 1
     local rid = filterRebuildId
 
@@ -2488,7 +2957,7 @@ local function rebuildFilterLists(farm)
         filterWin._ePageCtrl:SetCurrentPage(filterEntityPage, false)
     end
 
-    local function buildColumn(list, page, containerName, xOff)
+    local function buildColumn(list, page, containerName, xOff, isPlayer)
         local startIdx = (page - 1) * FW_ROWS_PER_PAGE + 1
         local endIdx   = math.min(startIdx + FW_ROWS_PER_PAGE - 1, #list)
         local rowCount = math.max(1, endIdx - startIdx + 1)
@@ -2527,20 +2996,56 @@ local function rebuildFilterLists(farm)
                     saveFarm(farm)
                 end)
                 local lbl = c:CreateChildWidget("label", containerName.."_lbl_"..uid, 0, true)
-                lbl:SetExtent(FW_COL_W - 26, FW_ROW_H)
+                lbl:SetExtent(FW_COL_W - 50, FW_ROW_H)
                 lbl:AddAnchor("TOPLEFT", c, 24, y-2)
                 lbl:SetText(entry.name ~= "" and entry.name or "(no owner)")
                 lbl:SetAutoResize(false)
                 ftStyleLabel(lbl, FARM_UI.white, 12, ALIGN.LEFT)
                 lbl:Show(true)
+
+                -- Favourite toggle (★). Persists in settings.favourite{Players,Entities}
+                -- and bypasses per-farm filter rejection / populateFilter lock.
+                local star = c:CreateChildWidget("button", containerName.."_fav_"..uid, 0, true)
+                star:SetExtent(20, 20)
+                star:AddAnchor("TOPLEFT", c, FW_COL_W - 26, y + 3)
+                local function isFav()
+                    if isPlayer then return FarmSystem._isFavouritePlayer(captured.name) end
+                    return FarmSystem._isFavouriteEntity(captured.name)
+                end
+                local function refreshStar()
+                    local fav = isFav()
+                    star:SetText(fav and "*" or "-")
+                    if star.style and star.style.SetColor then
+                        if fav then star.style:SetColor(1.0, 0.84, 0.0, 1.0)
+                        else star.style:SetColor(0.5, 0.5, 0.5, 1.0) end
+                    end
+                end
+                refreshStar()
+                function star:OnClick()
+                    if isPlayer then FarmSystem._toggleFavouritePlayer(captured.name)
+                    else FarmSystem._toggleFavouriteEntity(captured.name) end
+                    -- Favouriting forces the per-farm checkbox to enabled so the
+                    -- filter actually lets it through right now.
+                    if isFav() and not captured.enabled then
+                        captured.enabled = true
+                        saveFarm(farm)
+                    end
+                    refreshStar()
+                end
+                star:SetHandler("OnClick", star.OnClick)
+                star:Show(true)
             end
         end
         return c
     end
 
-    filterWin._playerContainer = buildColumn(players,  filterPlayerPage, "ft_fw_pc", 18)
-    filterWin._entityContainer = buildColumn(entities, filterEntityPage, "ft_fw_ec", 312)
+    filterWin._playerContainer = buildColumn(players,  filterPlayerPage, "ft_fw_pc", 18,  true)
+    filterWin._entityContainer = buildColumn(entities, filterEntityPage, "ft_fw_ec", 312, false)
 end
+
+-- Expose for cross-scope live-refresh from tryAddDoodad (which is defined
+-- earlier in the file and can't see this local directly).
+FarmSystem._rebuildFilterLists = rebuildFilterLists
 
 openFilterWindow = function(farm)
     if not filterWin then
@@ -2746,17 +3251,53 @@ function FarmSystem.floatActions.toggleTrackingWindow()
     end)
 end
 
+-- Hunt down any widget(s) registered under a given name and hide+destroy
+-- them. Used to cull orphan bars/buttons left over from prior addon loads
+-- where module-locals were reset and our cached references were lost.
+-- The 50-iteration cap is a sanity guard against an engine that returns
+-- the same widget repeatedly without releasing it.
+function FarmSystem.floatActions.cullByName(name)
+    if not api.Interface then return end
+    -- Try every lookup method the engine exposes. FindWidget commonly
+    -- misses CreateEmptyWindow widgets but GetWindow / GetWidgetByName
+    -- have been observed to find them in HUDManager — see hudmanager.lua's
+    -- destroyNamedWidget for the same pattern.
+    local methods = {"FindWidget", "GetWindow", "GetWidgetByName"}
+    for _ = 1, 50 do
+        local foundAny = false
+        for _, fn in ipairs(methods) do
+            local f = api.Interface[fn]
+            if f then
+                local ok, w = pcall(function() return f(api.Interface, name) end)
+                if ok and w then
+                    foundAny = true
+                    pcall(function() if w.Show then w:Show(false) end end)
+                    pcall(function() if w.RemoveAllAnchors then w:RemoveAllAnchors() end end)
+                    pcall(function() if w.AddAnchor then w:AddAnchor("TOPLEFT", "UIParent", -10000, -10000) end end)
+                    pcall(function() if w.SetExtent then w:SetExtent(1, 1) end end)
+                    pcall(function() if w.Destroy then w:Destroy() end end)
+                end
+            end
+        end
+        if not foundAny then return end
+    end
+end
+
 -- Build a single button widget as a child of the bar's container.
-function FarmSystem.floatActions.makeBarButton(parent, idTag, seq, label, tone, onClick)
-    local cfg = FarmSystem.floatActions.config
-    local btn = api.Interface:CreateWidget("button", "ft_bar_btn_"..idTag.."_"..seq, parent)
+function FarmSystem.floatActions.makeBarButton(parent, name, label, tone, onClick)
+    local fa = FarmSystem.floatActions
+    local cfg = fa.config
+    -- Snapshot of the current bar session at button creation. Read by the
+    -- click handler against the live disk value to detect /reload orphans.
+    local mySession = fa.bar and fa.bar.mySession
+    local btn = api.Interface:CreateWidget("button", name, parent)
     btn:SetExtent(cfg.BTN_W, cfg.BTN_H)
     btn:SetText("")
     btn._bg = btn:CreateColorDrawable(tone[1], tone[2], tone[3], tone[4], "background")
     btn._bg:AddAnchor("TOPLEFT", btn, 0, 0)
     btn._bg:AddAnchor("BOTTOMRIGHT", btn, 0, 0)
     btn._bg:Show(true)
-    btn._label = btn:CreateChildWidget("label", "ft_bar_btn_lbl_"..idTag.."_"..seq, 0, true)
+    btn._label = btn:CreateChildWidget("label", name.."_lbl", 0, true)
     btn._label:SetExtent(cfg.BTN_W, cfg.BTN_H - 2)
     btn._label:AddAnchor("TOPLEFT", btn, 0, 1)
     if btn._label.style then
@@ -2767,7 +3308,11 @@ function FarmSystem.floatActions.makeBarButton(parent, idTag, seq, label, tone, 
     if btn._label.EnablePick then btn._label:EnablePick(false) end
     btn._label:SetText(label or "")
     btn._label:Show(true)
-    btn.OnClick = function() onClick() end
+    btn.OnClick = function()
+        local s = api.GetSettings("tax_tracker") or {}
+        if (s.barSession or 0) ~= mySession then return end
+        onClick()
+    end
     btn:SetHandler("OnClick", btn.OnClick)
     btn:Show(true)
     return btn
@@ -2778,11 +3323,20 @@ end
 -- + clear our list. Children stay parented to the bar's container; when
 -- the next rebuild runs, fresh widgets get unique names so they don't
 -- collide with the hidden ones.
+-- Hide every tracked button widget AND any orphans that share our stable
+-- button names. Stable names + cull-by-name is what makes the bar
+-- reload-safe — the per-load `buttons` array would reset on /reload and
+-- miss the old children otherwise.
 function FarmSystem.floatActions.clearButtons()
     for _, b in ipairs(FarmSystem.floatActions.buttons) do
         pcall(function() if b.Show then b:Show(false) end end)
     end
     FarmSystem.floatActions.buttons = {}
+    for _, n in pairs(FarmSystem.floatActions.names) do
+        if n ~= FarmSystem.floatActions.names.bar then
+            FarmSystem.floatActions.cullByName(n)
+        end
+    end
 end
 
 -- Render the bar's contents based on the current settings flags. Re-runs
@@ -2796,21 +3350,19 @@ function FarmSystem.floatActions.rebuild()
     end
 
     fa.clearButtons()
-    fa.bar.seq = fa.bar.seq + 1
-    local seq = fa.bar.seq
     local cfg = fa.config
 
     -- Build ordered list of items based on which toggles are enabled.
     -- Arise is always first (the addon's primary entrypoint).
     local items = {}
     table.insert(items, {
-        idTag = "arise", label = "Arise", tone = cfg.TONE_ON,
+        name = fa.names.arise, label = "Arise", tone = cfg.TONE_ON,
         onClick = fa.invokeArise,
     })
     if settings.showFloatingBtn then
         table.insert(items, {
-            idTag = "auto",
-            label = settings.autotrackerEnabled and "AUTO ON" or "AUTO OFF",
+            name = fa.names.auto,
+            label = settings.autotrackerEnabled and "Autotracker ON" or "Autotracker OFF",
             tone  = settings.autotrackerEnabled and cfg.TONE_ON or cfg.TONE_OFF,
             onClick = function()
                 setAutotrackerEnabled(not settings.autotrackerEnabled)
@@ -2820,17 +3372,23 @@ function FarmSystem.floatActions.rebuild()
     end
     if settings.showTrackButton then
         table.insert(items, {
-            idTag = "addland", label = "+ Land", tone = cfg.TONE_ON,
+            name = fa.names.addLand, label = "+ Land", tone = cfg.TONE_ON,
             onClick = fa.openEditorFromTarget,
         })
     end
     if settings.showTrackingViewBtn then
         local on = fa.isAutotrackerVisible()
         table.insert(items, {
-            idTag = "trackview",
-            label = on and "TRACKING ON" or "TRACKING OFF",
+            name = fa.names.track,
+            label = on and "Tracking Window ON" or "Tracking Window OFF",
             tone  = on and cfg.TONE_ON or cfg.TONE_OFF,
             onClick = fa.toggleTrackingWindow,
+        })
+    end
+    if settings.showFarmListBtn then
+        table.insert(items, {
+            name = fa.names.farms, label = "Farm Tracker", tone = cfg.TONE_ON,
+            onClick = function() FarmSystem.toggleFarmWindow() end,
         })
     end
 
@@ -2841,7 +3399,7 @@ function FarmSystem.floatActions.rebuild()
 
     -- Place children top-to-bottom with consistent gaps.
     for i, item in ipairs(items) do
-        local b = fa.makeBarButton(fa.bar.widget, item.idTag, seq, item.label, item.tone, item.onClick)
+        local b = fa.makeBarButton(fa.bar.widget, item.name, item.label, item.tone, item.onClick)
         b:RemoveAllAnchors()
         b:AddAnchor("TOPLEFT", fa.bar.widget, cfg.PAD, cfg.PAD + (i - 1) * (cfg.BTN_H + cfg.GAP))
         table.insert(fa.buttons, b)
@@ -2850,11 +3408,26 @@ end
 
 function FarmSystem.floatActions.destroy()
     FarmSystem.floatActions.clearButtons()
+    if FarmSystem.floatActions.bar.staleHide and api.Off then
+        pcall(function() api.Off("UPDATE", FarmSystem.floatActions.bar.staleHide) end)
+        FarmSystem.floatActions.bar.staleHide = nil
+    end
     if FarmSystem.floatActions.bar.widget then
         pcall(function() FarmSystem.floatActions.bar.widget:Show(false) end)
         FarmSystem.floatActions.bar.widget = nil
     end
-    FarmSystem.floatActions.restoreStandaloneArise()
+    -- Cull any orphan bar widgets too. Belt-and-suspenders for the case
+    -- where module-locals were reset and bar.widget is nil.
+    FarmSystem.floatActions.cullByName(FarmSystem.floatActions.names.bar)
+    -- Intentionally NOT calling restoreStandaloneArise() during destroy.
+    -- The standalone Arise was hidden by suppressStandaloneArise() at create
+    -- time. If we un-hide it here on /reload, then HUDManager re-initializes
+    -- (often creating a fresh widget alongside the now-visible old one), and
+    -- the next bar create() only hides the *latest* HUDManager widget — the
+    -- one we just un-hid stays visible as a permanent orphan. Symptom: "a
+    -- second floating window appears after the first /reload".
+    -- HUDManager.cleanup() handles destroying its own widgets at addon
+    -- shutdown; we don't need to re-show them on the way out.
 end
 
 function FarmSystem.floatActions.create()
@@ -2865,18 +3438,58 @@ function FarmSystem.floatActions.create()
         return
     end
 
-    fa.bar.seq = fa.bar.seq + 1
-    local w = api.Interface:CreateEmptyWindow("ft_actions_bar_"..fa.bar.seq, "UIParent")
+    -- Session-id deafness for /reload orphans. Same pattern as
+    -- taxpayment.lua's listener guard. The bar is CreateEmptyWindow which
+    -- FindWidget can't see, Destroy() is unreliable, /reload doesn't fire
+    -- OnUnload — so we cannot physically remove the orphan bar. Instead we
+    -- bump a counter on disk; each button's click handler snapshots the
+    -- counter at creation and compares against the live value before
+    -- running its callback. Orphan handlers see a stale id and become
+    -- deaf, so OLD bar's TRACKING button no longer opens its own copy of
+    -- the tracking window.
+    local cur = api.GetSettings("tax_tracker") or {}
+    cur.barSession = (cur.barSession or 0) + 1
+    pcall(function() api.SaveSettings() end)
+    fa.bar.mySession = cur.barSession
+
+    -- Cull child button orphans (CreateWidget buttons are typically findable).
+    for _, n in pairs(fa.names) do
+        if n ~= fa.names.bar then fa.cullByName(n) end
+    end
+
+    -- Reuse-if-findable for the bar itself. /reload doesn't fire OnUnload
+    -- and CreateEmptyWindow widgets are unreliable to look up, but
+    -- GetWindow / GetWidgetByName have been observed to surface them in
+    -- HUDManager. If any method finds a prior bar, take it over instead
+    -- of creating a fresh one stacked on top — the visual duplicate is
+    -- exactly the OLD bar still alive in the engine.
+    local existing = nil
+    for _, fn in ipairs({"FindWidget", "GetWindow", "GetWidgetByName"}) do
+        local f = api.Interface and api.Interface[fn]
+        if f and not existing then
+            local ok, found = pcall(function() return f(api.Interface, fa.names.bar) end)
+            if ok and found then existing = found end
+        end
+    end
+
+    local isReused = existing ~= nil
+    local w = existing or api.Interface:CreateEmptyWindow(fa.names.bar, "UIParent")
     fa.bar.widget = w
 
-    local bg = w:CreateColorDrawable(0.05, 0.05, 0.06, 0.62, "background")
-    bg:AddAnchor("TOPLEFT", w, 0, 0)
-    bg:AddAnchor("BOTTOMRIGHT", w, 0, 0)
-    bg:Show(true)
+    -- Skip bg creation when reusing an orphan — its bg drawable is still
+    -- there. Stacking another drawable each /reload would just darken it.
+    if not isReused then
+        local bg = w:CreateColorDrawable(0.05, 0.05, 0.06, 0.62, "background")
+        bg:AddAnchor("TOPLEFT", w, 0, 0)
+        bg:AddAnchor("BOTTOMRIGHT", w, 0, 0)
+        bg:Show(true)
+    end
 
     settings.actionsBarX = settings.actionsBarX or settings.hudX or 970
     settings.actionsBarY = settings.actionsBarY or settings.hudY or 10
     saveSettings()
+    -- Re-anchor in case we're reusing an orphan whose anchors are stale.
+    pcall(function() if w.RemoveAllAnchors then w:RemoveAllAnchors() end end)
     w:AddAnchor("TOPLEFT", "UIParent", settings.actionsBarX, settings.actionsBarY)
     w:SetExtent(cfg.OUTER_W, cfg.PAD * 2 + cfg.BTN_H)  -- placeholder; rebuild() resizes
 
@@ -2902,6 +3515,30 @@ function FarmSystem.floatActions.create()
 
     w:Show(true)
     w:EnableDrag(true)
+
+    -- Orphan self-hide via UPDATE.
+    --
+    -- /reload doesn't fire OnUnload and FindWidget can't see CreateEmptyWindow
+    -- widgets, so we can't reach prior bars from the new load. Instead we
+    -- piggy-back on api.On("UPDATE", ...) which (per sandbox notes) is the
+    -- one event mechanism that survives /reload reliably. The handler
+    -- captures `mySession` and `w` as upvalues — after the next /reload
+    -- bumps the on-disk session counter, the orphan handler's snapshot no
+    -- longer matches, so it hides its own widget on the very next tick and
+    -- then unregisters itself. The current load's handler always matches so
+    -- it does nothing.
+    local mySession = fa.bar.mySession
+    local function staleHide(...)
+        local s = api.GetSettings("tax_tracker") or {}
+        if (s.barSession or 0) == mySession then return end
+        pcall(function() if w.Show then w:Show(false) end end)
+        pcall(function() if w.RemoveAllAnchors then w:RemoveAllAnchors() end end)
+        pcall(function() if w.AddAnchor then w:AddAnchor("TOPLEFT", "UIParent", -10000, -10000) end end)
+        pcall(function() if w.SetExtent then w:SetExtent(1, 1) end end)
+        if api.Off then pcall(function() api.Off("UPDATE", staleHide) end) end
+    end
+    fa.bar.staleHide = staleHide
+    if api.On then pcall(function() api.On("UPDATE", staleHide) end) end
 
     fa.suppressStandaloneArise()
     fa.rebuild()
@@ -2942,7 +3579,7 @@ end
 -- ============================================================
 
 local SETTINGS_W = 500
-local SETTINGS_H = 452
+local SETTINGS_H = 660
 
 local function openSettingsWindow()
     if settingsWin then
@@ -3120,12 +3757,27 @@ local function openSettingsWindow()
     end)
     updateTrackingViewToggleBtn()
 
-    panel(12, 280, SETTINGS_W - 24, 26, ui.header)
-    label("ft_fb_spot_header", "Cooled Tree Trunk Spots", 24, 285, 260, ui.gold, 13)
-    panel(20, 318, SETTINGS_W - 40, 84, ui.groupTools)
-    settingsCooledSpotLbl = label("ft_fb_spot_count", "", 30, 326, 420, ui.white)
-    label("ft_fb_spot_name_lbl", "Spot name", 30, 356, 80, ui.muted)
-    panel(108, 352, 262, 30, ui.input)
+    local farmListToggleBtn
+    local function updateFarmListToggleBtn()
+        if not farmListToggleBtn then return end
+        farmListToggleBtn:SetCleanText(settings.showFarmListBtn and "On" or "Off")
+        farmListToggleBtn:SetTone(settings.showFarmListBtn and ui.green or ui.button)
+    end
+    label("ft_fb_farms_lbl", "Floating Farm Tracker button", 30, 266, 280, ui.white)
+    farmListToggleBtn = button("ft_fb_farms_btn", "", 340, 264, 120, 24, ui.button, function()
+        settings.showFarmListBtn = not settings.showFarmListBtn
+        saveSettings()
+        FarmSystem.floatActions.rebuild()
+        updateFarmListToggleBtn()
+    end)
+    updateFarmListToggleBtn()
+
+    panel(12, 316, SETTINGS_W - 24, 26, ui.header)
+    label("ft_fb_spot_header", "Cooled Tree Trunk Spots", 24, 321, 260, ui.gold, 13)
+    panel(20, 354, SETTINGS_W - 40, 84, ui.groupTools)
+    settingsCooledSpotLbl = label("ft_fb_spot_count", "", 30, 362, 420, ui.white)
+    label("ft_fb_spot_name_lbl", "Spot name", 30, 392, 80, ui.muted)
+    panel(108, 388, 262, 30, ui.input)
 
     if W_CTRL and W_CTRL.CreateEdit then
         settingsSpotNameEdit = W_CTRL.CreateEdit("ft_fb_spot_name_edit", settingsWin)
@@ -3133,7 +3785,7 @@ local function openSettingsWindow()
         settingsSpotNameEdit = settingsWin:CreateChildWidget("edit", "ft_fb_spot_name_edit", 0, true)
     end
     settingsSpotNameEdit:SetExtent(254, 26)
-    settingsSpotNameEdit:AddAnchor("TOPLEFT", settingsWin, 112, 354)
+    settingsSpotNameEdit:AddAnchor("TOPLEFT", settingsWin, 112, 390)
     settingsSpotNameEdit:SetText("")
     if settingsSpotNameEdit.style then
         if settingsSpotNameEdit.style.SetFontSize then settingsSpotNameEdit.style:SetFontSize(12) end
@@ -3141,14 +3793,54 @@ local function openSettingsWindow()
     end
     settingsSpotNameEdit:Show(true)
 
-    panel(20, 406, SETTINGS_W - 40, 30, ui.groupActions)
-    button("ft_fb_capture", "Capture Spot", 30, 412, 130, 24, ui.green, function() captureCooledTreeSpot() end)
-    button("ft_fb_list", "List Spots", 170, 412, 110, 24, ui.button, function() openSpotListWindow() end)
-    button("ft_fb_clear", "Clear Spots", 290, 412, 110, 24, ui.red, function()
+    panel(20, 442, SETTINGS_W - 40, 30, ui.groupActions)
+    button("ft_fb_capture", "Capture Spot", 30, 448, 130, 24, ui.green, function() captureCooledTreeSpot() end)
+    button("ft_fb_list", "List Spots", 170, 448, 110, 24, ui.button, function() openSpotListWindow("cooled") end)
+    button("ft_fb_clear", "Clear Spots", 290, 448, 110, 24, ui.red, function()
         settings.cooledTreeSpots = {}
         saveSettings()
         refreshSettingsLabels()
-        if spotListWin and spotListWin:IsVisible() then rebuildSpotListWindow() end
+        if spotListWin and spotListWin:IsVisible() and spotListWin._spotType == "cooled" then
+            rebuildSpotListWindow()
+        end
+    end)
+
+    -- Dried Up Mineral Water section — same layout as cooled tree, shifted by 166.
+    panel(12, 482, SETTINGS_W - 24, 26, ui.header)
+    label("ft_fb_mw_header", "Dried Up Mineral Water Spots", 24, 487, 280, ui.gold, 13)
+    panel(20, 520, SETTINGS_W - 40, 84, ui.groupTools)
+    FarmSystem._settingsMineralLbl = label("ft_fb_mw_count", "", 30, 528, 420, ui.white)
+    label("ft_fb_mw_name_lbl", "Spot name", 30, 558, 80, ui.muted)
+    panel(108, 554, 262, 30, ui.input)
+
+    if W_CTRL and W_CTRL.CreateEdit then
+        FarmSystem._settingsMineralEdit = W_CTRL.CreateEdit("ft_fb_mw_name_edit", settingsWin)
+    else
+        FarmSystem._settingsMineralEdit = settingsWin:CreateChildWidget("edit", "ft_fb_mw_name_edit", 0, true)
+    end
+    FarmSystem._settingsMineralEdit:SetExtent(254, 26)
+    FarmSystem._settingsMineralEdit:AddAnchor("TOPLEFT", settingsWin, 112, 556)
+    FarmSystem._settingsMineralEdit:SetText("")
+    if FarmSystem._settingsMineralEdit.style then
+        if FarmSystem._settingsMineralEdit.style.SetFontSize then FarmSystem._settingsMineralEdit.style:SetFontSize(12) end
+        if FarmSystem._settingsMineralEdit.style.SetAlign then FarmSystem._settingsMineralEdit.style:SetAlign(ALIGN.LEFT) end
+    end
+    FarmSystem._settingsMineralEdit:Show(true)
+
+    panel(20, 608, SETTINGS_W - 40, 30, ui.groupActions)
+    button("ft_fb_mw_capture", "Capture Spot", 30, 614, 130, 24, ui.green, function()
+        FarmSystem._captureMineralWaterSpot()
+    end)
+    button("ft_fb_mw_list", "List Spots", 170, 614, 110, 24, ui.button, function()
+        openSpotListWindow("mineral")
+    end)
+    button("ft_fb_mw_clear", "Clear Spots", 290, 614, 110, 24, ui.red, function()
+        settings.mineralWaterSpots = {}
+        saveSettings()
+        refreshSettingsLabels()
+        if spotListWin and spotListWin:IsVisible() and spotListWin._spotType == "mineral" then
+            rebuildSpotListWindow()
+        end
     end)
 
     refreshSettingsLabels()
@@ -3323,7 +4015,7 @@ local function applyDoodadToLand(land)
     pendingDoodadInfo = nil
     if info then
         if tryAddDoodad(farm, info) then
-            addAutotrackerItem(farm, info.name, isCooledTreeInfo(info))
+            addAutotrackerItem(farm, info.name, isCooledTreeInfo(info) or FarmSystem._isFishInfo(info) or FarmSystem._isGamekeeperInfo(info) or FarmSystem._isDriedMineralWaterInfo(info))
         end
     end
 
