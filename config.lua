@@ -47,10 +47,10 @@ Config.BASE_TAX = {
   ["Chalet (28x28)"]                   = 25,
   ["Treehouse (28x28)"]                = 25,
   ["Raised Mushroom House (28x28)"]    = 25,
-  -- 28x28 crafting variants — one Villa variant per crafting type, base 30/wk
-  ["Apothecary's Villa (28x28)"]       = 30,
-  ["Armorer's Villa (28x28)"]          = 30,
-  ["Tradesman's Villa (28x28)"]        = 30,
+  -- 28x28 crafting variants — one Villa variant per crafting type, base 40/wk
+  ["Apothecary's Villa (28x28)"]       = 40,
+  ["Armorer's Villa (28x28)"]          = 40,
+  ["Tradesman's Villa (28x28)"]        = 40,
 
   -- Mansions (44x44)
   ["Beanstalk House (44x44)"]          = 50,
