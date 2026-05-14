@@ -66,7 +66,7 @@ local UI = {
   BUTTON_BLUE = {0.14, 0.17, 0.22, 0.95},
   PANEL = {0.05, 0.05, 0.06, 0.55},
   PANEL_DARK = {0.035, 0.035, 0.045, 0.68},
-  INPUT = {0.11, 0.11, 0.125, 0.72},
+  INPUT = {0.10, 0.10, 0.11, 0.96},
   LIST_PANEL = {0.05, 0.05, 0.06, 0.36},
   HEADER = {0.09, 0.09, 0.11, 0.95},
   GROUP_DETAILS = {0.07, 0.07, 0.08, 0.74},
@@ -114,12 +114,79 @@ local function addWidgetPanel(parent, id, x, y, width, height, color)
   return panel
 end
 
+local function addCategoryPanel(parent, id, x, y, width, height, titleText)
+  if not (parent and parent.CreateChildWidget) then return nil end
+  local panel = parent:CreateChildWidget("emptywidget", id, 0, true)
+  panel:SetExtent(width, height)
+  panel:AddAnchor("TOPLEFT", parent, x, y)
+
+  local border = panel:CreateColorDrawable(0, 0, 0, 0.92, "background")
+  border:AddAnchor("TOPLEFT", panel, 0, 0)
+  border:AddAnchor("BOTTOMRIGHT", panel, 0, 0)
+  border:Show(true)
+
+  local bg = panel:CreateColorDrawable(0.045, 0.045, 0.052, 0.82, "background")
+  bg:AddAnchor("TOPLEFT", panel, 1, 1)
+  bg:AddAnchor("BOTTOMRIGHT", panel, -1, -1)
+  bg:Show(true)
+
+  local header = panel:CreateColorDrawable(UI.HEADER[1], UI.HEADER[2], UI.HEADER[3], UI.HEADER[4], "background")
+  header:SetExtent(width - 2, 28)
+  header:AddAnchor("TOPLEFT", panel, 1, 1)
+  header:Show(true)
+
+  local accent = panel:CreateColorDrawable(1, 0.84, 0, 0.85, "background")
+  accent:SetExtent(4, 28)
+  accent:AddAnchor("TOPLEFT", panel, 1, 1)
+  accent:Show(true)
+
+  local title = panel:CreateChildWidget("label", id .. "Title", 0, true)
+  title:SetText(titleText or "")
+  title:SetExtent(width - 24, 18)
+  title:AddAnchor("TOPLEFT", panel, 14, 7)
+  if title.style then
+    title.style:SetFontSize(13)
+    if title.style.SetAlign then title.style:SetAlign(ALIGN.LEFT) end
+  end
+  setTextColor(title, UI.GOLD)
+  title:Show(true)
+
+  panel:Show(true)
+  return panel
+end
+
 local function addInputBackplate(parent, id, x, y, width, height)
-  return addColorPanel(parent, id, x - 2, y - 1, width + 4, height + 2, UI.INPUT)
+  local border = addColorPanel(parent, id .. "Border", x - 1, y - 1, width + 2, height + 2, {0, 0, 0, 0.95})
+  local plate = addColorPanel(parent, id .. "Plate", x, y, width, height, UI.INPUT)
+  return plate or border
+end
+
+local function anchorEditBackplate(editbox)
+  if not editbox then return end
+
+  if editbox.CreateColorDrawable and not editbox.backborder then
+    editbox.backborder = editbox:CreateColorDrawable(0, 0, 0, 0.95, "background")
+    editbox.backplate = editbox:CreateColorDrawable(UI.INPUT[1], UI.INPUT[2], UI.INPUT[3], UI.INPUT[4], "background")
+  end
+
+  if editbox.backborder then
+    if editbox.backborder.RemoveAllAnchors then editbox.backborder:RemoveAllAnchors() end
+    editbox.backborder:AddAnchor("TOPLEFT", editbox, -1, -1)
+    editbox.backborder:AddAnchor("BOTTOMRIGHT", editbox, 1, 1)
+    editbox.backborder:Show(true)
+  end
+
+  if editbox.backplate then
+    if editbox.backplate.RemoveAllAnchors then editbox.backplate:RemoveAllAnchors() end
+    editbox.backplate:AddAnchor("TOPLEFT", editbox, 0, 0)
+    editbox.backplate:AddAnchor("BOTTOMRIGHT", editbox, 0, 0)
+    editbox.backplate:Show(true)
+  end
 end
 
 local function styleEditBox(editbox, muted)
   if not editbox then return end
+  anchorEditBackplate(editbox)
   if editbox.style then
     if editbox.style.SetFontSize then editbox.style:SetFontSize(12) end
     if editbox.style.SetAlign then editbox.style:SetAlign(ALIGN.LEFT) end
@@ -555,27 +622,24 @@ local function openLoanNoteDialog(loan)
     destroyOrphanByName("TaxTrackerLoanNote")
 
     local ok, err = pcall(function()
-      local W, H = 420, 260
-      noteWin = api.Interface:CreateWindow("TaxTrackerLoanNote", "Loan Note", 0, 0)
-      noteWin:SetExtent(W, H)
-      noteWin:AddAnchor("CENTER", "UIParent", 0, 0)
+      local W, H = 420, 280
+      noteWin = gui.CreateStyledWindow("TaxTrackerLoanNote", "Loan Note", W, H)
       addTint(noteWin, "noteBg", 0.55, 36)
-      addColorPanel(noteWin, "notePanel", 20, 46, W - 40, 156, UI.LIST_PANEL)
+      addCategoryPanel(noteWin, "notePanel", 20, 46, W - 40, 176, "Note")
+      addColorPanel(noteWin, "noteInnerPanel", 30, 84, W - 60, 126, {0, 0, 0, 0.58})
       noteWin:Show(false)
 
-      local hdr = addSectionTitle(noteWin, "noteHeader", "Note", 30, 54, W - 60)
-
       if W_CTRL and W_CTRL.CreateMultiLineEdit then
-        addInputBackplate(noteWin, "noteEditBg", 30, 75, W - 60, 120)
+        addInputBackplate(noteWin, "noteEditBg", 36, 90, W - 72, 108)
         noteEdit = W_CTRL.CreateMultiLineEdit("noteEdit", noteWin)
-        noteEdit:SetExtent(W - 60, 120)
-        noteEdit:AddAnchor("TOPLEFT", noteWin, 30, 75)
+        noteEdit:SetExtent(W - 72, 108)
+        noteEdit:AddAnchor("TOPLEFT", noteWin, 36, 90)
         styleEditBox(noteEdit)
         pcall(function() noteEdit:SetMaxTextLength(2000) end)
       else
-        addInputBackplate(noteWin, "noteEditBg", 30, 75, W - 60, 120)
+        addInputBackplate(noteWin, "noteEditBg", 36, 90, W - 72, 108)
         noteEdit = gui.AddEditBox(noteWin, "noteEdit",
-          "TOPLEFT", noteWin, 30, 75, W - 60, 120, 1024, "", nil)
+          "TOPLEFT", noteWin, 36, 90, W - 72, 108, 1024, "", nil)
         styleEditBox(noteEdit)
         pcall(function()
           if noteEdit.style and noteEdit.style.SetAlign then
@@ -613,7 +677,11 @@ local function openLoanNoteDialog(loan)
   end
 
   noteCurrentLoanId = loan.id or 0
-  pcall(function() noteWin:SetTitle(string.format("Note: %s", loan.playerName or "Loan")) end)
+  pcall(function()
+    if noteWin.styledTitle then
+      noteWin.styledTitle:SetText(string.format("Note: %s", loan.playerName or "Loan"))
+    end
+  end)
   if noteEdit and noteEdit.SetText then
     pcall(function() noteEdit:SetText(loan.note or "") end)
   end
@@ -639,8 +707,10 @@ function LoansSystem.buildLoansWindow(savedLandsList)
   local PANEL_W = 170
   local PANEL_GAP = 20
 
-  loansWin = api.Interface:CreateWindow("TaxTrackerLoans", "Land Loans & Rentals", 0, 0)
-  loansWin:SetExtent(WIN_W, WIN_H)
+  loansWin = gui.CreateStyledWindow("TaxTrackerLoans", "Land Loans & Rentals", WIN_W, WIN_H)
+  if loansWin.RemoveAllAnchors then
+    loansWin:RemoveAllAnchors()
+  end
   loansWin:AddAnchor("CENTER", "UIParent", 0, 0)
   addTint(loansWin, "loansBg", 0.55, 36)
   loansWin:Show(false)
@@ -648,11 +718,9 @@ function LoansSystem.buildLoansWindow(savedLandsList)
   -- ==================== INPUT SECTION ====================
   local inputY = 78
   local COL_LABEL_W = 90
-  addWidgetPanel(loansWin, "loansInputBackWindow", 10, 42, WIN_W - 20, 122, UI.PANEL)
-  addWidgetPanel(loansWin, "loansInputHeader", 10, 42, WIN_W - 20, 26, UI.HEADER)
-  addSectionTitle(loansWin, "loansInputTitle", "Add Loan", 20, 47, 220)
+  addCategoryPanel(loansWin, "loansInputPanel", 10, 42, WIN_W - 20, 122, "Add Loan")
   local row2Y = inputY + 42
-  addWidgetPanel(loansWin, "loansFormGroup", 18, inputY - 8, WIN_W - 36, 84, UI.GROUP_DETAILS)
+  addWidgetPanel(loansWin, "loansFormGroup", 18, inputY - 2, WIN_W - 36, 76, {0, 0, 0, 0.54})
 
   local function updateLoansPager()
     if not loansWin then return end
@@ -977,8 +1045,8 @@ function LoansSystem.buildLoansWindow(savedLandsList)
 
   -- ==================== LIST SECTION ====================
   local listY = 194  -- clear gap below the two-line input area
-  addColorPanel(loansWin, "loansListPanel", 10, listY - 8, LIST_W, WIN_H - listY - 52, UI.LIST_PANEL)
-  addSectionTitle(loansWin, "loansListTitle", "Loans", 20, listY - 24, 200)
+  addCategoryPanel(loansWin, "loansListPanel", 10, listY - 36, LIST_W, WIN_H - listY - 16, "Loans")
+  addColorPanel(loansWin, "loansListInnerPanel", 18, listY - 4, LIST_W - 16, WIN_H - listY - 56, {0, 0, 0, 0.50})
 
   -- rentingSince is now stored as a "YYYY-MM-DD" string at creation time,
   -- but legacy data may still be a numeric timestamp — handle both.
@@ -1219,10 +1287,9 @@ function LoansSystem.buildLoansWindow(savedLandsList)
   -- Replaces the old top-header strip and bottom-footer strip. All totals
   -- now live in one column to the right of the list.
   local panelBg = loansWin:CreateChildWidget("emptywidget", "panelBg", 0, true)
-  panelBg:SetExtent(PANEL_W, WIN_H - listY - 58)
-  panelBg:AddAnchor("TOPLEFT", loansWin, 10 + LIST_W + PANEL_GAP, listY)
-  addColorPanel(panelBg, "loansSummaryBg", 0, 0, PANEL_W, WIN_H - listY - 58, UI.PANEL)
-  addColorPanel(panelBg, "loansSummaryHeader", 0, 0, PANEL_W, 30, UI.HEADER)
+  panelBg:SetExtent(PANEL_W, WIN_H - listY - 16)
+  panelBg:AddAnchor("TOPLEFT", loansWin, 10 + LIST_W + PANEL_GAP, listY - 36)
+  addCategoryPanel(panelBg, "loansSummaryPanel", 0, 0, PANEL_W, WIN_H - listY - 16, "Summary")
   addColorPanel(panelBg, "loansSummaryStatusGroup", 8, 42, PANEL_W - 16, 72, UI.GROUP_STATUS)
   addColorPanel(panelBg, "loansSummaryIncomeGroup", 8, 122, PANEL_W - 16, 110, UI.GROUP_MONEY)
   addColorPanel(panelBg, "loansSummaryOverdueGroup", 8, 236, PANEL_W - 16, 36, UI.GROUP_STATUS)
@@ -1239,9 +1306,6 @@ function LoansSystem.buildLoansWindow(savedLandsList)
     setTextColor(lbl, color or UI.WHITE)
     return lbl
   end
-
-  -- Header for the panel
-  local panelTitle = panelLabel("loansPanelTitle", "Summary", 8, UI.GOLD)
 
   -- Defaults to engine color; only Total received (gold) and Overdue (red
   -- when positive) get explicit coloring. Weekly income removed — duplicated

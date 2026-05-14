@@ -1,4 +1,5 @@
 local api = require("api")
+local gui = require("tax_tracker/gui")
 
 local FarmSystem = {}
 local trackedLands = {}
@@ -10,11 +11,11 @@ local trackedLands = {}
 local SETTINGS_KEY      = "farmTrackerSettings"
 local ALL_FARMS_KEY     = "farmTrackerData"
 
-local MAIN_W, MAIN_H     = 820, 470
-local DETAIL_W, DETAIL_H = 800, 500
+local MAIN_W, MAIN_H     = 820, 500
+local DETAIL_W, DETAIL_H = 800, 580
 
 -- Detail window layout
-local DETAIL_LIST_Y        = 106  -- top of doodad list content
+local DETAIL_LIST_Y        = 170  -- top of doodad list content
 local DETAIL_ROWS_PER_PAGE = 10
 local DETAIL_NAME_X        = 37
 local DETAIL_NAME_W        = 390
@@ -922,32 +923,26 @@ end
 
 local function showFarmMinuteReminder(items)
     if not items or #items == 0 then return end
-    if farmMinuteReminderWin and farmMinuteReminderWin._styleVersion ~= 1 then
+    if farmMinuteReminderWin and farmMinuteReminderWin._styleVersion ~= 2 then
         ftDestroyWidget(farmMinuteReminderWin)
         farmMinuteReminderWin = nil
     end
 
     if not farmMinuteReminderWin then
-        farmMinuteReminderWin = api.Interface:CreateWindow("tax_tracker_farm_minute_reminder", "Farm Reminder", 420, 180)
+        farmMinuteReminderWin = gui.CreateStyledWindow("tax_tracker_farm_minute_reminder", "Farm Reminder", 420, 180)
+        if farmMinuteReminderWin.RemoveAllAnchors then
+            farmMinuteReminderWin:RemoveAllAnchors()
+        end
         farmMinuteReminderWin:AddAnchor("CENTER", "UIParent", 0, -120)
-        farmMinuteReminderWin:SetCloseOnEscape(true)
-        farmMinuteReminderWin:SetHandler("OnCloseByEsc", function() farmMinuteReminderWin:Show(false) end)
 
-        farmMinuteReminderWin._rootPanel = ftAddPanel(farmMinuteReminderWin, "farm_minute_root", 12, 42, 396, 112, FARM_UI.panel)
-        farmMinuteReminderWin._headerPanel = ftAddPanel(farmMinuteReminderWin, "farm_minute_header", 18, 48, 384, 28, FARM_UI.header)
-        farmMinuteReminderWin._listPanel = ftAddPanel(farmMinuteReminderWin, "farm_minute_list", 18, 82, 384, 64, FARM_UI.listPanel)
-
-        local title = farmMinuteReminderWin:CreateChildWidget("label", "farm_minute_title", 0, true)
-        title:SetText("Farm Reminder")
-        title:SetExtent(220, 22)
-        title:AddAnchor("TOPLEFT", farmMinuteReminderWin, 30, 52)
-        ftStyleLabel(title, FARM_UI.gold, 13, ALIGN.LEFT)
-        title:Show(true)
-        farmMinuteReminderWin._title = title
+        farmMinuteReminderWin._rootPanel = gui.CreateCategoryPanel(farmMinuteReminderWin,
+            "farm_minute_root", 12, 42, 396, 112, "Farm Reminder")
+        farmMinuteReminderWin._listPanel = ftAddPanel(farmMinuteReminderWin,
+            "farm_minute_list", 24, 82, 372, 64, {0, 0, 0, 0.54})
 
         local text = farmMinuteReminderWin:CreateChildWidget("textbox", "farm_minute_text", 0, true)
-        text:SetExtent(360, 74)
-        text:AddAnchor("TOPLEFT", farmMinuteReminderWin, 30, 92)
+        text:SetExtent(356, 74)
+        text:AddAnchor("TOPLEFT", farmMinuteReminderWin, 32, 92)
         if text.style then
             text.style:SetFontSize(FONT_SIZE.MIDDLE or 12)
             text.style:SetAlign(ALIGN.TOP_LEFT)
@@ -963,7 +958,7 @@ local function showFarmMinuteReminder(items)
         closeBtn:SetHandler("OnClick", closeBtn.OnClick)
         closeBtn:Show(true)
         farmMinuteReminderWin._closeBtn = closeBtn
-        farmMinuteReminderWin._styleVersion = 1
+        farmMinuteReminderWin._styleVersion = 2
     end
 
     local lines = {}
@@ -979,11 +974,11 @@ local function showFarmMinuteReminder(items)
         farmMinuteReminderWin._text:SetText(table.concat(lines, "\n"))
     end
 
-    local height = math.max(166, 112 + (math.min(#items, 5) * 20))
+    local height = math.max(180, 112 + (math.min(#items, 5) * 20))
     farmMinuteReminderWin:SetExtent(420, height)
     if farmMinuteReminderWin._rootPanel then farmMinuteReminderWin._rootPanel:SetExtent(396, height - 54) end
-    if farmMinuteReminderWin._listPanel then farmMinuteReminderWin._listPanel:SetExtent(384, math.max(64, height - 118)) end
-    if farmMinuteReminderWin._text then farmMinuteReminderWin._text:SetExtent(360, math.max(74, height - 126)) end
+    if farmMinuteReminderWin._listPanel then farmMinuteReminderWin._listPanel:SetExtent(372, math.max(64, height - 118)) end
+    if farmMinuteReminderWin._text then farmMinuteReminderWin._text:SetExtent(356, math.max(74, height - 126)) end
     farmMinuteReminderWin:Show(true)
 end
 
@@ -2229,13 +2224,14 @@ local function openDetailWindow(farmId)
     if mainWin then mainWin:Show(false) end
 
     if not detailWin then
-        detailWin = api.Interface:CreateWindow("tax_tracker_farm_detail", "Farm Detail", DETAIL_W, DETAIL_H)
+        detailWin = gui.CreateStyledWindow("tax_tracker_farm_detail", "Farm Detail", DETAIL_W, DETAIL_H)
         detailWin:RemoveAllAnchors()
         detailWin:AddAnchor("CENTER", "UIParent", 0, 0)
-        ftAddPanel(detailWin, "ft_detail_root", 12, 42, DETAIL_W - 24, DETAIL_H - 54, FARM_UI.panel)
-        ftAddPanel(detailWin, "ft_detail_info_panel", 18, 42, DETAIL_W - 36, 28, FARM_UI.groupDetails)
-        ftAddPanel(detailWin, "ft_detail_header_panel", 18, 76, DETAIL_W - 36, 26, FARM_UI.header)
-        ftAddPanel(detailWin, "ft_detail_list_panel", 18, 106, DETAIL_W - 36, 280, FARM_UI.listPanel)
+        gui.CreateCategoryPanel(detailWin, "ft_detail_land_panel", 12, 42, DETAIL_W - 24, 58, "Land")
+        gui.CreateCategoryPanel(detailWin, "ft_detail_entities_panel", 12, 110, DETAIL_W - 24, 346, "Tracked Entities")
+        ftAddPanel(detailWin, "ft_detail_info_panel", 18, 72, DETAIL_W - 36, 22, FARM_UI.groupDetails)
+        ftAddPanel(detailWin, "ft_detail_header_panel", 18, 140, DETAIL_W - 36, 26, FARM_UI.header)
+        ftAddPanel(detailWin, "ft_detail_list_panel", 18, 170, DETAIL_W - 36, 280, FARM_UI.listPanel)
         ftAddPanel(detailWin, "ft_detail_action_panel", 18, DETAIL_H - 78, DETAIL_W - 36, 54, FARM_UI.groupActions)
         detailWin:Show(false)
 
@@ -2246,14 +2242,14 @@ local function openDetailWindow(farmId)
         detailWin._zoneLbl = detailWin:CreateChildWidget("label", "ft_detail_zone", 0, true)
         detailWin._zoneLbl:SetExtent(200, 22)
         detailWin._zoneLbl:SetAutoResize(false)
-        detailWin._zoneLbl:AddAnchor("TOPLEFT", detailWin, 28, 47)
+        detailWin._zoneLbl:AddAnchor("TOPLEFT", detailWin, 28, 72)
         ftStyleLabel(detailWin._zoneLbl, FARM_UI.gold, 12, ALIGN.LEFT)
         detailWin._zoneLbl:Show(true)
 
         detailWin._sextLbl = detailWin:CreateChildWidget("label", "ft_detail_sext", 0, true)
         detailWin._sextLbl:SetExtent(220, 22)
         detailWin._sextLbl:SetAutoResize(false)
-        detailWin._sextLbl:AddAnchor("TOPRIGHT", detailWin, -28, 47)
+        detailWin._sextLbl:AddAnchor("TOPRIGHT", detailWin, -28, 72)
         ftStyleLabel(detailWin._sextLbl, FARM_UI.muted, 12, ALIGN.RIGHT)
         detailWin._sextLbl:Show(true)
 
@@ -2262,7 +2258,7 @@ local function openDetailWindow(farmId)
             local lbl = detailWin:CreateChildWidget("label", name, 0, true)
             lbl:SetExtent(w, 22)
             lbl:RemoveAllAnchors()
-            lbl:AddAnchor("TOPLEFT", detailWin, x + 8, 80)
+            lbl:AddAnchor("TOPLEFT", detailWin, x + 8, 144)
             lbl:SetText(txt)
             lbl:SetAutoResize(false)
             ftStyleLabel(lbl, FARM_UI.gold, 12, ALIGN.LEFT)
@@ -2423,7 +2419,8 @@ local function openDetailWindow(farmId)
     -- Populate static labels
     detailWin._zoneLbl:SetText(zoneName(farm.zone))
     detailWin._sextLbl:SetText(farm.sextants or "")
-    if detailWin.SetTitle then detailWin:SetTitle(farm.name or "Farm Detail") end
+    if detailWin.styledTitle then detailWin.styledTitle:SetText(farm.name or "Farm Detail")
+    elseif detailWin.SetTitle then detailWin:SetTitle(farm.name or "Farm Detail") end
     if detailWin._cbPopulate then
         local pop = farm.populateFilter
         if pop == nil then pop = true end
@@ -2573,7 +2570,7 @@ rebuildSpotListWindow = function()
         local empty = spotListWin:CreateChildWidget("label", "tt_spot_empty_" .. tostring(api.Time:GetUiMsec()), 0, true)
         empty:SetText(emptyText)
         empty:SetExtent(480, 22)
-        empty:AddAnchor("TOPLEFT", spotListWin, 28, 86)
+        empty:AddAnchor("TOPLEFT", spotListWin, 28, 114)
         ftStyleLabel(empty, FARM_UI.muted, 12, ALIGN.LEFT)
         empty:Show(true)
         table.insert(spotListRows, empty)
@@ -2594,7 +2591,7 @@ rebuildSpotListWindow = function()
     for i = startIdx, endIdx do
         local spot = spots[i]
         local rowIndex = i - startIdx + 1
-        local y = 78 + ((rowIndex - 1) * 28)
+        local y = 106 + ((rowIndex - 1) * 28)
         local row = spotListWin:CreateChildWidget("emptywidget", "tt_spot_row_" .. tostring(api.Time:GetUiMsec()) .. "_" .. i, 0, true)
         row:SetExtent(504, 26)
         row:AddAnchor("TOPLEFT", spotListWin, 18, y)
@@ -2651,27 +2648,21 @@ end
 local function openSpotListWindow(spotType)
     spotType = spotType or "cooled"
     if not spotListWin then
-        spotListWin = api.Interface:CreateWindow("tax_tracker_tree_spot_list", "Captured Spots", 540, 392)
+        spotListWin = gui.CreateStyledWindow("tax_tracker_tree_spot_list", "Captured Spots", 540, 430)
         spotListWin:RemoveAllAnchors()
         spotListWin:AddAnchor("CENTER", "UIParent", 0, 0)
-        spotListWin:SetHandler("OnCloseByEsc", function() spotListWin:Show(false) end)
 
-        -- Panel chrome following the FARM_UI stylesheet (matches the Filter
-        -- and Settings windows). Geometry:
-        --   y=42..68    header strip (column titles)
-        --   y=72..342   list panel (9 rows at 28px from y=78)
-        --   y=346..374  footer strip (prev / page / next)
-        ftAddPanel(spotListWin, "tt_spot_root",   12, 42, 516, 338, FARM_UI.panel)
-        ftAddPanel(spotListWin, "tt_spot_hdr",    18, 42, 504, 26,  FARM_UI.header)
-        ftAddPanel(spotListWin, "tt_spot_list",   18, 72, 504, 270, FARM_UI.listPanel)
-        ftAddPanel(spotListWin, "tt_spot_footer", 18, 346, 504, 28, FARM_UI.groupActions)
+        gui.CreateCategoryPanel(spotListWin, "tt_spot_root", 12, 42, 516, 330, "Captured Spots")
+        ftAddPanel(spotListWin, "tt_spot_hdr",    18, 72, 504, 26,  FARM_UI.header)
+        ftAddPanel(spotListWin, "tt_spot_list",   18, 102, 504, 260, FARM_UI.listPanel)
+        ftAddPanel(spotListWin, "tt_spot_footer", 18, 382, 504, 28, FARM_UI.groupActions)
 
         -- Column header labels in gold
         local function colHdr(id, text, x, w)
             local l = spotListWin:CreateChildWidget("label", id, 0, true)
             l:SetText(text)
             l:SetExtent(w, 22)
-            l:AddAnchor("TOPLEFT", spotListWin, x, 46)
+            l:AddAnchor("TOPLEFT", spotListWin, x, 76)
             l:SetAutoResize(false)
             ftStyleLabel(l, FARM_UI.gold, 12, ALIGN.LEFT)
             l:Show(true)
@@ -2714,7 +2705,13 @@ local function openSpotListWindow(spotType)
     end
 
     spotListWin._spotType = spotType
-    if spotListWin.SetTitle then
+    if spotListWin.styledTitle then
+        if spotType == "mineral" then
+            spotListWin.styledTitle:SetText("Dried Mineral Water Spots")
+        else
+            spotListWin.styledTitle:SetText("Cooled Tree Spots")
+        end
+    elseif spotListWin.SetTitle then
         if spotType == "mineral" then
             spotListWin:SetTitle("Dried Mineral Water Spots")
         else
@@ -3049,12 +3046,13 @@ FarmSystem._rebuildFilterLists = rebuildFilterLists
 
 openFilterWindow = function(farm)
     if not filterWin then
-        filterWin = api.Interface:CreateWindow("tax_tracker_farm_filters", "Scan Filters", FW_W, FW_H)
+        filterWin = gui.CreateStyledWindow("tax_tracker_farm_filters", "Scan Filters", FW_W, FW_H)
         filterWin:RemoveAllAnchors()
         filterWin:AddAnchor("CENTER", "UIParent", 0, 0)
-        ftAddPanel(filterWin, "ft_filter_root", 12, 42, FW_W - 24, FW_H - 54, FARM_UI.panel)
-        ftAddPanel(filterWin, "ft_filter_left_header", 18, 42, FW_COL_W, 28, FARM_UI.header)
-        ftAddPanel(filterWin, "ft_filter_right_header", 312, 42, FW_COL_W, 28, FARM_UI.header)
+        gui.CreateCategoryPanel(filterWin, "ft_filter_left_panel", 12, 42, 282, 326, "Players")
+        gui.CreateCategoryPanel(filterWin, "ft_filter_right_panel", 306, 42, 282, 326, "Entities")
+        ftAddPanel(filterWin, "ft_filter_left_header", 18, 76, FW_COL_W, 24, FARM_UI.groupDetails)
+        ftAddPanel(filterWin, "ft_filter_right_header", 312, 76, FW_COL_W, 24, FARM_UI.groupDetails)
         ftAddPanel(filterWin, "ft_filter_left_list", 18, 104, FW_COL_W, 260, FARM_UI.listPanel)
         ftAddPanel(filterWin, "ft_filter_right_list", 312, 104, FW_COL_W, 260, FARM_UI.listPanel)
         ftAddPanel(filterWin, "ft_filter_footer", 18, FW_H - 48, FW_W - 36, 26, FARM_UI.groupActions)
@@ -3062,7 +3060,7 @@ openFilterWindow = function(farm)
         -- Column headers
         local hdrPlayers = filterWin:CreateChildWidget("label", "ft_fw_hdr_p", 0, true)
         hdrPlayers:SetExtent(FW_COL_W - 42, 24)
-        hdrPlayers:AddAnchor("TOPLEFT", filterWin, 52, 46)
+        hdrPlayers:AddAnchor("TOPLEFT", filterWin, 52, 78)
         hdrPlayers:SetText("Scan only from these players:")
         ftStyleLabel(hdrPlayers, FARM_UI.gold, 12, ALIGN.LEFT)
         hdrPlayers:Show(true)
@@ -3091,7 +3089,7 @@ openFilterWindow = function(farm)
             return cb
         end
 
-        filterWin._cbPlayerFilter = makeInlineCb("ft_fw_cb_pfilter", 28, 48, function(val)
+        filterWin._cbPlayerFilter = makeInlineCb("ft_fw_cb_pfilter", 28, 80, function(val)
             if filterWin._currentFarm then
                 filterWin._currentFarm.filterPlayersEnabled = val
                 saveFarm(filterWin._currentFarm)
@@ -3101,12 +3099,12 @@ openFilterWindow = function(farm)
 
         local hdrEntities = filterWin:CreateChildWidget("label", "ft_fw_hdr_e", 0, true)
         hdrEntities:SetExtent(FW_COL_W - 42, 24)
-        hdrEntities:AddAnchor("TOPLEFT", filterWin, 346, 46)
+        hdrEntities:AddAnchor("TOPLEFT", filterWin, 346, 78)
         hdrEntities:SetText("Scan only these entities:")
         ftStyleLabel(hdrEntities, FARM_UI.gold, 12, ALIGN.LEFT)
         hdrEntities:Show(true)
 
-        filterWin._cbEntityFilter = makeInlineCb("ft_fw_cb_efilter", 322, 48, function(val)
+        filterWin._cbEntityFilter = makeInlineCb("ft_fw_cb_efilter", 322, 80, function(val)
             if filterWin._currentFarm then
                 filterWin._currentFarm.filterEntitiesEnabled = val
                 saveFarm(filterWin._currentFarm)
@@ -3588,16 +3586,15 @@ local function openSettingsWindow()
         return
     end
 
-    settingsWin = api.Interface:CreateWindow("tax_tracker_farm_settings", "Farm Tracker Settings", SETTINGS_W, SETTINGS_H)
+    settingsWin = gui.CreateStyledWindow("tax_tracker_farm_settings", "Farm Tracker Settings", SETTINGS_W, SETTINGS_H)
     settingsWin:RemoveAllAnchors()
     settingsWin:AddAnchor("CENTER", "UIParent", 0, 0)
-    settingsWin:SetHandler("OnCloseByEsc", function() settingsWin:Show(false) end)
 
     local ui = {
         white = {1, 1, 1, 1}, muted = {0.72, 0.72, 0.72, 1}, gold = {1, 0.84, 0, 1},
         green = {0.12, 0.28, 0.15, 0.95}, red = {0.24, 0.09, 0.09, 0.95},
         button = {0.11, 0.11, 0.13, 0.92}, panel = {0.05, 0.05, 0.06, 0.64},
-        header = {0.09, 0.09, 0.11, 0.95}, input = {0.11, 0.11, 0.125, 0.72},
+        header = {0.09, 0.09, 0.11, 0.95}, input = {0.10, 0.10, 0.11, 0.96},
         groupDetails = {0.07, 0.07, 0.08, 0.74}, groupTools = {0.055, 0.06, 0.07, 0.74},
         groupActions = {0.065, 0.065, 0.075, 0.74},
         rowOdd = {0.08, 0.08, 0.095, 0.72}, rowEven = {0.12, 0.12, 0.135, 0.72}
@@ -3673,10 +3670,38 @@ local function openSettingsWindow()
         return b
     end
 
-    panel(12, 42, SETTINGS_W - 24, SETTINGS_H - 54, ui.panel)
-    panel(12, 42, SETTINGS_W - 24, 26, ui.header)
-    label("ft_sw_title", "Autotracker", 24, 47, 220, ui.gold, 13)
-    panel(20, 80, SETTINGS_W - 40, 176, ui.groupDetails)
+    local function inputBackplate(x, y, w, h)
+        panel(x - 1, y - 1, w + 2, h + 2, {0, 0, 0, 0.95})
+        panel(x, y, w, h, ui.input)
+    end
+
+    local function styleSettingsEdit(edit)
+        if not edit then return end
+        if edit.CreateColorDrawable and not edit._styledInputBorder then
+            edit._styledInputBorder = edit:CreateColorDrawable(0, 0, 0, 0.95, "background")
+            edit._styledInputPlate = edit:CreateColorDrawable(ui.input[1], ui.input[2], ui.input[3], ui.input[4], "background")
+        end
+        if edit._styledInputBorder then
+            ftClearAnchors(edit._styledInputBorder)
+            edit._styledInputBorder:AddAnchor("TOPLEFT", edit, -1, -1)
+            edit._styledInputBorder:AddAnchor("BOTTOMRIGHT", edit, 1, 1)
+            edit._styledInputBorder:Show(true)
+        end
+        if edit._styledInputPlate then
+            ftClearAnchors(edit._styledInputPlate)
+            edit._styledInputPlate:AddAnchor("TOPLEFT", edit, 0, 0)
+            edit._styledInputPlate:AddAnchor("BOTTOMRIGHT", edit, 0, 0)
+            edit._styledInputPlate:Show(true)
+        end
+        if edit.style then
+            if edit.style.SetFontSize then edit.style:SetFontSize(12) end
+            if edit.style.SetAlign then edit.style:SetAlign(ALIGN.LEFT) end
+            if edit.style.SetColor then edit.style:SetColor(1, 1, 1, 1) end
+        end
+    end
+
+    gui.CreateCategoryPanel(settingsWin, "ft_sw_autotracker_panel", 12, 42, SETTINGS_W - 24, 258, "Autotracker")
+    panel(20, 80, SETTINGS_W - 40, 214, ui.groupDetails)
 
     local MOD_OPTIONS = { "Any modifier", "Ctrl", "Alt", "Shift", "None required" }
     local MOD_VALUES  = { "any", "ctrl", "alt", "shift", "none" }
@@ -3772,12 +3797,11 @@ local function openSettingsWindow()
     end)
     updateFarmListToggleBtn()
 
-    panel(12, 316, SETTINGS_W - 24, 26, ui.header)
-    label("ft_fb_spot_header", "Cooled Tree Trunk Spots", 24, 321, 260, ui.gold, 13)
+    gui.CreateCategoryPanel(settingsWin, "ft_fb_spot_panel", 12, 316, SETTINGS_W - 24, 156, "Cooled Tree Trunk Spots")
     panel(20, 354, SETTINGS_W - 40, 84, ui.groupTools)
     settingsCooledSpotLbl = label("ft_fb_spot_count", "", 30, 362, 420, ui.white)
     label("ft_fb_spot_name_lbl", "Spot name", 30, 392, 80, ui.muted)
-    panel(108, 388, 262, 30, ui.input)
+    inputBackplate(108, 388, 262, 30)
 
     if W_CTRL and W_CTRL.CreateEdit then
         settingsSpotNameEdit = W_CTRL.CreateEdit("ft_fb_spot_name_edit", settingsWin)
@@ -3787,10 +3811,7 @@ local function openSettingsWindow()
     settingsSpotNameEdit:SetExtent(254, 26)
     settingsSpotNameEdit:AddAnchor("TOPLEFT", settingsWin, 112, 390)
     settingsSpotNameEdit:SetText("")
-    if settingsSpotNameEdit.style then
-        if settingsSpotNameEdit.style.SetFontSize then settingsSpotNameEdit.style:SetFontSize(12) end
-        if settingsSpotNameEdit.style.SetAlign then settingsSpotNameEdit.style:SetAlign(ALIGN.LEFT) end
-    end
+    styleSettingsEdit(settingsSpotNameEdit)
     settingsSpotNameEdit:Show(true)
 
     panel(20, 442, SETTINGS_W - 40, 30, ui.groupActions)
@@ -3806,12 +3827,11 @@ local function openSettingsWindow()
     end)
 
     -- Dried Up Mineral Water section — same layout as cooled tree, shifted by 166.
-    panel(12, 482, SETTINGS_W - 24, 26, ui.header)
-    label("ft_fb_mw_header", "Dried Up Mineral Water Spots", 24, 487, 280, ui.gold, 13)
+    gui.CreateCategoryPanel(settingsWin, "ft_fb_mw_panel", 12, 482, SETTINGS_W - 24, 156, "Dried Up Mineral Water Spots")
     panel(20, 520, SETTINGS_W - 40, 84, ui.groupTools)
     FarmSystem._settingsMineralLbl = label("ft_fb_mw_count", "", 30, 528, 420, ui.white)
     label("ft_fb_mw_name_lbl", "Spot name", 30, 558, 80, ui.muted)
-    panel(108, 554, 262, 30, ui.input)
+    inputBackplate(108, 554, 262, 30)
 
     if W_CTRL and W_CTRL.CreateEdit then
         FarmSystem._settingsMineralEdit = W_CTRL.CreateEdit("ft_fb_mw_name_edit", settingsWin)
@@ -3821,10 +3841,7 @@ local function openSettingsWindow()
     FarmSystem._settingsMineralEdit:SetExtent(254, 26)
     FarmSystem._settingsMineralEdit:AddAnchor("TOPLEFT", settingsWin, 112, 556)
     FarmSystem._settingsMineralEdit:SetText("")
-    if FarmSystem._settingsMineralEdit.style then
-        if FarmSystem._settingsMineralEdit.style.SetFontSize then FarmSystem._settingsMineralEdit.style:SetFontSize(12) end
-        if FarmSystem._settingsMineralEdit.style.SetAlign then FarmSystem._settingsMineralEdit.style:SetAlign(ALIGN.LEFT) end
-    end
+    styleSettingsEdit(FarmSystem._settingsMineralEdit)
     FarmSystem._settingsMineralEdit:Show(true)
 
     panel(20, 608, SETTINGS_W - 40, 30, ui.groupActions)
@@ -3857,7 +3874,7 @@ local ZONE_W         = 160
 local EARLIEST_W     = 120
 local BTN_W          = 52
 local GAP            = 8
-local SCROLL_Y_START = 84
+local SCROLL_Y_START = 112
 
 local COL_NAME_X = 12
 local COL_ZONE_X = COL_NAME_X + NAME_W + GAP
@@ -4172,11 +4189,10 @@ openLandPickerWindow = function(info)
     pendingDoodadInfo = info
 
     if not landPickerWin then
-        landPickerWin = api.Interface:CreateWindow("tax_tracker_farm_land_picker", "Choose Land", 500, 400)
+        landPickerWin = gui.CreateStyledWindow("tax_tracker_farm_land_picker", "Choose Land", 500, 400)
         landPickerWin:RemoveAllAnchors()
         landPickerWin:AddAnchor("CENTER", "UIParent", 0, 0)
-        ftAddPanel(landPickerWin, "ft_land_picker_root", 12, 42, 476, 346, FARM_UI.panel)
-        ftAddPanel(landPickerWin, "ft_land_picker_header", 12, 42, 476, 28, FARM_UI.header)
+        gui.CreateCategoryPanel(landPickerWin, "ft_land_picker_root", 12, 42, 476, 346, "Choose Land")
         ftAddPanel(landPickerWin, "ft_land_picker_action_panel", 18, 78, 464, 22, FARM_UI.groupDetails)
         ftAddPanel(landPickerWin, "ft_land_picker_list_panel", 18, 104, 464, 240, FARM_UI.listPanel)
         ftAddPanel(landPickerWin, "ft_land_picker_footer", 18, 352, 464, 28, FARM_UI.groupActions)
@@ -4189,10 +4205,10 @@ openLandPickerWindow = function(info)
 
         local hintLbl = landPickerWin:CreateChildWidget("label", "tt_farm_land_hint", 0, true)
         hintLbl:SetText("Attach scanned timer to:")
-        hintLbl:SetExtent(220, 20)
+        hintLbl:SetExtent(180, 20)
         hintLbl:SetAutoResize(false)
-        hintLbl:AddAnchor("TOPLEFT", landPickerWin, 28, 47)
-        ftStyleLabel(hintLbl, FARM_UI.gold, 12, ALIGN.LEFT)
+        hintLbl:AddAnchor("TOPLEFT", landPickerWin, 28, 80)
+        ftStyleLabel(hintLbl, FARM_UI.muted, 12, ALIGN.LEFT)
         hintLbl:Show(true)
         landPickerWin._hintLbl = hintLbl
 
@@ -4260,12 +4276,12 @@ end
 local function ensureMainWindow()
     if mainWin then return end
 
-    mainWin = api.Interface:CreateWindow("tax_tracker_farm_main", "Farm Tracker", MAIN_W, MAIN_H)
+    mainWin = gui.CreateStyledWindow("tax_tracker_farm_main", "Farm Tracker", MAIN_W, MAIN_H)
     mainWin:RemoveAllAnchors()
     mainWin:AddAnchor("CENTER", "UIParent", 0, 0)
-    ftAddPanel(mainWin, "ft_main_root", 12, 42, MAIN_W - 24, MAIN_H - 54, FARM_UI.panel)
-    ftAddPanel(mainWin, "ft_main_header_panel", 12, 42, MAIN_W - 24, 28, FARM_UI.header)
-    ftAddPanel(mainWin, "ft_main_list_panel", 18, 78, MAIN_W - 36, 316, FARM_UI.listPanel)
+    gui.CreateCategoryPanel(mainWin, "ft_main_root", 12, 42, MAIN_W - 24, 384, "Farms")
+    ftAddPanel(mainWin, "ft_main_header_panel", 18, 72, MAIN_W - 36, 28, FARM_UI.header)
+    ftAddPanel(mainWin, "ft_main_list_panel", 18, 106, MAIN_W - 36, 316, FARM_UI.listPanel)
     ftAddPanel(mainWin, "ft_main_actions_panel", 18, MAIN_H - 58, MAIN_W - 36, 34, FARM_UI.groupActions)
     mainWin:Show(false)
 
@@ -4277,7 +4293,7 @@ local function ensureMainWindow()
     local hdrBar = mainWin:CreateChildWidget("emptywidget", "ft_hdr_bar", 0, true)
     hdrBar:SetExtent(MAIN_W - 36, 28)
     hdrBar:RemoveAllAnchors()
-    hdrBar:AddAnchor("TOPLEFT", mainWin, 18, 42)
+    hdrBar:AddAnchor("TOPLEFT", mainWin, 18, 72)
     ftAddDrawable(hdrBar, FARM_UI.header)
     hdrBar:Show(true)
 
@@ -4439,4 +4455,3 @@ function FarmSystem.captureCooledTreeSpot()
 end
 
 return FarmSystem
-

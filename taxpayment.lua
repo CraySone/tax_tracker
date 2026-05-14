@@ -4,6 +4,7 @@
 
 local api = require("api")
 local TimeSystem = require("tax_tracker/timesystem")
+local gui = require("tax_tracker/gui")
 
 -- Safe Debug loading
 local Debug = nil
@@ -259,37 +260,33 @@ end
 -- duplicate windows. Destroy-and-recreate doesn't work reliably here.
 local function createDisambigWindow()
   if not disambigWin then
-    disambigWin = api.Interface:CreateWindow("TaxPaymentDisambig", "Tax Payment Detected", 0, 0)
+    disambigWin = gui.CreateStyledWindow("TaxPaymentDisambig", "Tax Payment Detected", 460, 150)
+    if disambigWin.RemoveAllAnchors then
+      disambigWin:RemoveAllAnchors()
+    end
     disambigWin:AddAnchor("CENTER", "UIParent", 0, -100)
     disambigWin:Show(false)
   end
 
-  if disambigWin._taxPopupStyleVersion == 1 then return end
+  if disambigWin._taxPopupStyleVersion == 2 then return end
 
   disambigWin:SetExtent(460, 150)
 
-  if not disambigWin._rootPanel then
-    disambigWin._rootPanel = addPanel(disambigWin, "taxPopupRootPanel", 12, 40, 436, 96, POPUP_UI.PANEL)
-  end
-  if not disambigWin._headerPanel then
-    disambigWin._headerPanel = addPanel(disambigWin, "taxPopupHeaderPanel", 18, 46, 424, 28, POPUP_UI.HEADER)
-  end
-  if not disambigWin._listPanel then
-    disambigWin._listPanel = addPanel(disambigWin, "taxPopupListPanel", 18, 110, 424, 28, POPUP_UI.LIST_PANEL)
-  end
+  destroyWidget(disambigWin._rootPanel)
+  destroyWidget(disambigWin._headerPanel)
+  destroyWidget(disambigWin._listPanel)
+  destroyWidget(disambigWin._titleLabel)
+  disambigWin._rootPanel = nil
+  disambigWin._headerPanel = nil
+  disambigWin._listPanel = nil
+  disambigWin._titleLabel = nil
 
-  if not disambigWin._titleLabel then
-    local title = disambigWin:CreateChildWidget("label", "taxPopupTitle", 0, true)
-    title:SetText("Tax Payment Detected")
-    title:SetExtent(250, 24)
-    title:AddAnchor("TOPLEFT", disambigWin, 30, 50)
-    if title.style then
-      title.style:SetFontSize(13)
-      if title.style.SetAlign then title.style:SetAlign(ALIGN.LEFT) end
-    end
-    setTextColor(title, POPUP_UI.GOLD)
-    title:Show(true)
-    disambigWin._titleLabel = title
+  if not disambigWin._rootPanel then
+    disambigWin._rootPanel = gui.CreateCategoryPanel(disambigWin, "taxPopupRootPanel", 12, 40, 436, 96, "Choose Land")
+  end
+  addPanel(disambigWin, "taxPopupTextPanel", 18, 78, 424, 30, {0, 0, 0, 0.54})
+  if not disambigWin._listPanel then
+    disambigWin._listPanel = addPanel(disambigWin, "taxPopupListPanel", 18, 114, 424, 24, POPUP_UI.LIST_PANEL)
   end
 
   if not disambigLabel then
@@ -297,14 +294,14 @@ local function createDisambigWindow()
   end
   clearAnchors(disambigLabel)
   disambigLabel:SetExtent(404, 34)
-  disambigLabel:AddAnchor("TOPLEFT", disambigWin, 30, 78)
+  disambigLabel:AddAnchor("TOPLEFT", disambigWin, 30, 80)
   if disambigLabel.style then
     disambigLabel.style:SetAlign(ALIGN.LEFT)
     disambigLabel.style:SetFontSize(FONT_SIZE.MIDDLE)
   end
   setTextColor(disambigLabel, POPUP_UI.MUTED)
   disambigLabel:SetText("")
-  disambigWin._taxPopupStyleVersion = 1
+  disambigWin._taxPopupStyleVersion = 2
 end
 
 -- Show disambiguation popup with land choices
@@ -324,7 +321,7 @@ local function showDisambigPopup(matches, certCount)
     "%d Tax Certificates consumed.\nChoose the land to mark as paid.", certCount))
 
   -- Create a button for each matching land
-  local yOffset = 116
+  local yOffset = 120
   for idx, land in ipairs(matches) do
     local landName = fitText(land.name or "Land #" .. tostring(land.id or idx), 34)
     local zoneName = fitText(land.zone or land.zoneName or "Unknown zone", 22)

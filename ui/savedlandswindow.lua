@@ -1,6 +1,7 @@
 -- tax_tracker/ui/savedlandswindow.lua - Saved Lands List Window (matches original layout)
 local api = require("api")
 local Debug = require("tax_tracker/debug")
+local gui = require("tax_tracker/gui")
 local TimeSystem = require("tax_tracker/timesystem")
 local HybridList = require("tax_tracker/ui/hybrid_list")
 local UIManager = nil -- Lazy load to avoid circular dependency
@@ -21,9 +22,11 @@ local bulkHostilePage = 1
 local bulkHostileRebuildSeq = 0
 local BULK_HOSTILE_ROWS = 9
 local BULK_HOSTILE_RIGHT_MARGIN = 12
-local BULK_HOSTILE_BUTTON_GAP = 8
-local BULK_HOSTILE_ON_WIDTH = 88
+local BULK_HOSTILE_BUTTON_GAP = 6
+local BULK_HOSTILE_ON_WIDTH = 82
 local BULK_HOSTILE_OFF_WIDTH = 52
+local BULK_HOSTILE_TERR_ON_WIDTH = 72
+local BULK_HOSTILE_LABEL_WIDTH = 345
 
 local UI = {
   white = {1, 1, 1, 1},
@@ -199,14 +202,14 @@ local function landZoneName(land)
   return tostring((land and (land.zoneName or land.zone)) or "Unknown Zone")
 end
 
-local function collectZoneHostileRows()
+local function collectZoneTaxRows()
   local settings = api.GetSettings("tax_tracker") or {}
   local zones = {}
   local order = {}
   for _, land in ipairs(settings.lands or {}) do
     local zone = landZoneName(land)
     if not zones[zone] then
-      zones[zone] = { zoneName = zone, total = 0, editable = 0, hostile = 0, exempt = 0 }
+      zones[zone] = { zoneName = zone, total = 0, editable = 0, hostile = 0, territory = 0, exempt = 0 }
       table.insert(order, zone)
     end
     local z = zones[zone]
@@ -216,6 +219,7 @@ local function collectZoneHostileRows()
     else
       z.editable = z.editable + 1
       if land.hostile then z.hostile = z.hostile + 1 end
+      if land.territory then z.territory = z.territory + 1 end
     end
   end
   table.sort(order)
@@ -224,8 +228,8 @@ local function collectZoneHostileRows()
   return rows
 end
 
-function SavedLandsWindow.setZoneHostileTax(zoneName, enabled)
-  if not zoneName then return 0, 0 end
+function SavedLandsWindow.setZoneTaxFlag(zoneName, fieldName, enabled)
+  if not zoneName or not fieldName then return 0, 0 end
   local settings = api.GetSettings("tax_tracker") or {}
   local changed, skipped = 0, 0
 
@@ -233,8 +237,8 @@ function SavedLandsWindow.setZoneHostileTax(zoneName, enabled)
     if landZoneName(land) == tostring(zoneName) then
       if land.taxExempt then
         skipped = skipped + 1
-      elseif land.hostile ~= (enabled and true or false) then
-        land.hostile = enabled and true or false
+      elseif land[fieldName] ~= (enabled and true or false) then
+        land[fieldName] = enabled and true or false
         changed = changed + 1
       end
     end
@@ -253,6 +257,14 @@ function SavedLandsWindow.setZoneHostileTax(zoneName, enabled)
   return changed, skipped
 end
 
+function SavedLandsWindow.setZoneHostileTax(zoneName, enabled)
+  return SavedLandsWindow.setZoneTaxFlag(zoneName, "hostile", enabled)
+end
+
+function SavedLandsWindow.setZoneTerritoryTax(zoneName, enabled)
+  return SavedLandsWindow.setZoneTaxFlag(zoneName, "territory", enabled)
+end
+
 local function rebuildBulkHostileWindow()
   if not bulkHostileWin then return end
 
@@ -262,7 +274,7 @@ local function rebuildBulkHostileWindow()
   bulkHostileRows = {}
   bulkHostileRebuildSeq = bulkHostileRebuildSeq + 1
 
-  local rows = collectZoneHostileRows()
+  local rows = collectZoneTaxRows()
   local totalPages = math.max(1, math.ceil(#rows / BULK_HOSTILE_ROWS))
   if bulkHostilePage > totalPages then bulkHostilePage = totalPages end
   if bulkHostilePage < 1 then bulkHostilePage = 1 end
@@ -293,7 +305,7 @@ local function rebuildBulkHostileWindow()
     local y = 116 + ((rowIndex - 1) * 31)
     local nameSuffix = bulkHostileRebuildSeq .. "_" .. tostring(rowIndex)
     local row = bulkHostileWin:CreateChildWidget("emptywidget", "bulk_hostile_row_" .. nameSuffix, 0, true)
-    row:SetExtent(520, 28)
+    row:SetExtent(660, 28)
     row:AddAnchor("TOPLEFT", bulkHostileWin, 18, y)
     row:Show(true)
     table.insert(bulkHostileRows, row)
@@ -305,15 +317,15 @@ local function rebuildBulkHostileWindow()
     bg:Show(true)
 
     local lbl = row:CreateChildWidget("label", "bulk_hostile_lbl_" .. nameSuffix, 0, true)
-    lbl:SetText(string.format("%s  (%d land, %d hostile, %d exempt)", item.zoneName, item.total, item.hostile, item.exempt))
-    lbl:SetExtent(330, 24)
+    lbl:SetText(string.format("%s  (%d land, H:%d, T:%d, exempt:%d)", item.zoneName, item.total, item.hostile, item.territory, item.exempt))
+    lbl:SetExtent(BULK_HOSTILE_LABEL_WIDTH, 24)
     lbl:AddAnchor("LEFT", row, 8, 0)
     if lbl.style then lbl.style:SetAlign(ALIGN.LEFT); lbl.style:SetFontSize(12) end
     setTextColor(lbl, UI.white)
     lbl:Show(true)
 
     local btnOn = row:CreateChildWidget("button", "bulk_hostile_on_" .. nameSuffix, 0, true)
-    placeButton(btnOn, "RIGHT", row, nil, -(BULK_HOSTILE_RIGHT_MARGIN + BULK_HOSTILE_OFF_WIDTH + BULK_HOSTILE_BUTTON_GAP), 0, BULK_HOSTILE_ON_WIDTH, 22)
+    placeButton(btnOn, "RIGHT", row, nil, -(BULK_HOSTILE_RIGHT_MARGIN + BULK_HOSTILE_OFF_WIDTH + BULK_HOSTILE_BUTTON_GAP + BULK_HOSTILE_TERR_ON_WIDTH + BULK_HOSTILE_BUTTON_GAP + BULK_HOSTILE_OFF_WIDTH + BULK_HOSTILE_BUTTON_GAP), 0, BULK_HOSTILE_ON_WIDTH, 22)
     styleFlatButton(btnOn, "Hostile ON", UI.green)
     local capturedZoneOn = item.zoneName
     function btnOn:OnClick()
@@ -325,7 +337,7 @@ local function rebuildBulkHostileWindow()
     btnOn:Show(true)
 
     local btnOff = row:CreateChildWidget("button", "bulk_hostile_off_" .. nameSuffix, 0, true)
-    placeButton(btnOff, "RIGHT", row, nil, -BULK_HOSTILE_RIGHT_MARGIN, 0, BULK_HOSTILE_OFF_WIDTH, 22)
+    placeButton(btnOff, "RIGHT", row, nil, -(BULK_HOSTILE_RIGHT_MARGIN + BULK_HOSTILE_TERR_ON_WIDTH + BULK_HOSTILE_BUTTON_GAP + BULK_HOSTILE_OFF_WIDTH + BULK_HOSTILE_BUTTON_GAP), 0, BULK_HOSTILE_OFF_WIDTH, 22)
     styleFlatButton(btnOff, "OFF", UI.button)
     local capturedZoneOff = item.zoneName
     function btnOff:OnClick()
@@ -335,32 +347,49 @@ local function rebuildBulkHostileWindow()
     end
     btnOff:SetHandler("OnClick", btnOff.OnClick)
     btnOff:Show(true)
+
+    local btnTerrOn = row:CreateChildWidget("button", "bulk_territory_on_" .. nameSuffix, 0, true)
+    placeButton(btnTerrOn, "RIGHT", row, nil, -(BULK_HOSTILE_RIGHT_MARGIN + BULK_HOSTILE_OFF_WIDTH + BULK_HOSTILE_BUTTON_GAP), 0, BULK_HOSTILE_TERR_ON_WIDTH, 22)
+    styleFlatButton(btnTerrOn, "Terr. ON", UI.green)
+    local capturedTerrZoneOn = item.zoneName
+    function btnTerrOn:OnClick()
+      local changed, skipped = SavedLandsWindow.setZoneTerritoryTax(capturedTerrZoneOn, true)
+      if bulkHostileWin._statusLbl then bulkHostileWin._statusLbl:SetText(string.format("Territory: updated %d land(s), skipped %d exempt.", changed, skipped)) end
+      rebuildBulkHostileWindow()
+    end
+    btnTerrOn:SetHandler("OnClick", btnTerrOn.OnClick)
+    btnTerrOn:Show(true)
+
+    local btnTerrOff = row:CreateChildWidget("button", "bulk_territory_off_" .. nameSuffix, 0, true)
+    placeButton(btnTerrOff, "RIGHT", row, nil, -BULK_HOSTILE_RIGHT_MARGIN, 0, BULK_HOSTILE_OFF_WIDTH, 22)
+    styleFlatButton(btnTerrOff, "OFF", UI.button)
+    local capturedTerrZoneOff = item.zoneName
+    function btnTerrOff:OnClick()
+      local changed, skipped = SavedLandsWindow.setZoneTerritoryTax(capturedTerrZoneOff, false)
+      if bulkHostileWin._statusLbl then bulkHostileWin._statusLbl:SetText(string.format("Territory: updated %d land(s), skipped %d exempt.", changed, skipped)) end
+      rebuildBulkHostileWindow()
+    end
+    btnTerrOff:SetHandler("OnClick", btnTerrOff.OnClick)
+    btnTerrOff:Show(true)
   end
 end
 
 local function openBulkHostileWindow()
   if not bulkHostileWin then
-    bulkHostileWin = api.Interface:CreateWindow("TaxTrackerZoneHostile", "Zone Hostile Tax", 560, 450)
+    bulkHostileWin = gui.CreateStyledWindow("TaxTrackerZoneHostile", "Zone Tax", 700, 450)
+    if bulkHostileWin.RemoveAllAnchors then
+      bulkHostileWin:RemoveAllAnchors()
+    end
     bulkHostileWin:AddAnchor("CENTER", "UIParent", 0, 0)
-    bulkHostileWin:SetCloseOnEscape(true)
-    bulkHostileWin:SetHandler("OnCloseByEsc", function() bulkHostileWin:Show(false) end)
 
-    addPanel(bulkHostileWin, "bulkHostileRoot", 12, 42, 536, 384, UI.panel)
-    addPanel(bulkHostileWin, "bulkHostileHeader", 12, 42, 536, 26, UI.header)
-    addPanel(bulkHostileWin, "bulkHostileHintGroup", 18, 76, 524, 28, UI.groupStatus)
-    addPanel(bulkHostileWin, "bulkHostileListPanel", 18, 112, 524, 282, UI.listPanel)
-
-    local title = bulkHostileWin:CreateChildWidget("label", "bulk_hostile_title", 0, true)
-    title:SetText("Zone Hostile Tax")
-    title:SetExtent(260, 20)
-    title:AddAnchor("TOPLEFT", bulkHostileWin, 24, 47)
-    if title.style then title.style:SetAlign(ALIGN.LEFT); title.style:SetFontSize(13) end
-    setTextColor(title, UI.gold)
-    title:Show(true)
+    gui.CreateCategoryPanel(bulkHostileWin, "bulkHostileRoot", 12, 42, 676, 352, "Zone Tax")
+    addPanel(bulkHostileWin, "bulkHostileHintGroup", 18, 76, 664, 28, UI.groupStatus)
+    addPanel(bulkHostileWin, "bulkHostileListPanel", 18, 112, 664, 282, UI.listPanel)
+    addPanel(bulkHostileWin, "bulkHostileFooter", 18, 402, 664, 30, UI.groupStatus)
 
     local hint = bulkHostileWin:CreateChildWidget("label", "bulk_hostile_hint", 0, true)
-    hint:SetText("Set hostile faction tax for all non-exempt tracked land in one zone.")
-    hint:SetExtent(500, 22)
+    hint:SetText("Set hostile faction or territory tax for all non-exempt tracked land in one zone.")
+    hint:SetExtent(640, 22)
     hint:AddAnchor("TOPLEFT", bulkHostileWin, 28, 80)
     if hint.style then hint.style:SetAlign(ALIGN.LEFT); hint.style:SetFontSize(12) end
     setTextColor(hint, UI.muted)
@@ -368,9 +397,9 @@ local function openBulkHostileWindow()
 
     local status = bulkHostileWin:CreateChildWidget("label", "bulk_hostile_status", 0, true)
     status:SetText("")
-    status:SetExtent(300, 24)
-    status:AddAnchor("BOTTOM", bulkHostileWin, 0, -14)
-    if status.style then status.style:SetAlign(ALIGN.CENTER); status.style:SetFontSize(12) end
+    status:SetExtent(390, 24)
+    status:AddAnchor("TOPLEFT", bulkHostileWin, 156, 406)
+    if status.style then status.style:SetAlign(ALIGN.LEFT); status.style:SetFontSize(12) end
     setTextColor(status, UI.muted)
     status:Show(true)
     bulkHostileWin._statusLbl = status
@@ -389,9 +418,9 @@ local function openBulkHostileWindow()
 
     local pageLbl = bulkHostileWin:CreateChildWidget("label", "bulk_hostile_page", 0, true)
     pageLbl:SetText("1 / 1")
-    pageLbl:SetExtent(80, 24)
-    pageLbl:AddAnchor("BOTTOM", bulkHostileWin, 0, -42)
-    if pageLbl.style then pageLbl.style:SetAlign(ALIGN.CENTER); pageLbl.style:SetFontSize(12) end
+    pageLbl:SetExtent(54, 24)
+    pageLbl:AddAnchor("TOPLEFT", bulkHostileWin, 94, 406)
+    if pageLbl.style then pageLbl.style:SetAlign(ALIGN.LEFT); pageLbl.style:SetFontSize(12) end
     setTextColor(pageLbl, UI.muted)
     pageLbl:Show(true)
     bulkHostileWin._pageLbl = pageLbl
@@ -444,7 +473,10 @@ function SavedLandsWindow.initialize(dataCallback)
         end
 
         -- Create main window - widened to show all columns properly
-        listWin = api.Interface:CreateWindow("TaxTrackerList", "Land Barons - Arise", 1500, 800)
+        listWin = gui.CreateStyledWindow("TaxTrackerList", "Land Barons - Arise", 1500, 800)
+        if listWin.RemoveAllAnchors then
+            listWin:RemoveAllAnchors()
+        end
         listWin:AddAnchor("CENTER", "UIParent", "CENTER", 0, 220)
         listWin:Show(false) -- Initially hidden, opened from HUD button
         
@@ -456,10 +488,9 @@ function SavedLandsWindow.initialize(dataCallback)
         -- Timer registration removed - UpdateSystem handles all updates
         Debug.info("SavedLandsWindow", "Timer registration skipped - UpdateSystem handles all updates")
         
-        -- Add the same dark backwindow + header treatment used by the editor.
+        -- Add the same dark grouped treatment used by the editor.
         addStretchPanel(listWin, "savedLandsRootPanel", 12, 42, 12, 30, UI.panel)
         addPanel(listWin, "savedLandsToolbarPanel", 20, 42, 1050, 38, UI.groupDetails)
-        addPanel(listWin, "savedLandsHeaderPanel", 12, 42, 1476, 26, UI.header)
         addStretchPanel(listWin, "savedLandsListPanel", 20, 86, 20, 24, UI.listPanel)
         
         -- Create header buttons (Loans, Open Editor, Farm Tracker)
@@ -612,7 +643,7 @@ function CreateHeaderButtons()
     local zoneHostileBtn = listWin:CreateChildWidget("button", "zoneHostileBtn", 0, true)
     zoneHostileBtn:SetExtent(140, 28)
     zoneHostileBtn:AddAnchor("LEFT", resetAllBtn, "RIGHT", 10, 0)
-    styleFlatButton(zoneHostileBtn, "Zone Hostile", UI.button)
+    styleFlatButton(zoneHostileBtn, "Zone Tax", UI.button)
 
     function zoneHostileBtn:OnClick()
         openBulkHostileWindow()

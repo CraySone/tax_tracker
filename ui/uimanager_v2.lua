@@ -318,7 +318,7 @@ local EDITOR_UI = {
   button = {0.11, 0.11, 0.13, 0.92},
   panel = {0.05, 0.05, 0.06, 0.62},
   header = {0.09, 0.09, 0.11, 0.95},
-  input = {0.11, 0.11, 0.125, 0.72},
+  input = {0.10, 0.10, 0.11, 0.96},
   groupDetails = {0.07, 0.07, 0.08, 0.74},
   groupTax = {0.055, 0.06, 0.07, 0.74},
   groupCoords = {0.065, 0.065, 0.075, 0.74},
@@ -340,6 +340,37 @@ local function addEditorPanel(parent, id, x, y, width, height, color)
   bg:Show(true)
   box:Show(true)
   return box
+end
+
+local function addEditorInputBackplate(parent, id, x, y, width, height)
+  addEditorPanel(parent, id .. "Border", x - 1, y - 1, width + 2, height + 2, {0, 0, 0, 0.95})
+  return addEditorPanel(parent, id, x, y, width, height, EDITOR_UI.input)
+end
+
+local function styleEditorEditBox(editbox)
+  if not editbox then return end
+  if editbox.CreateColorDrawable and not editbox._editorInputBorder then
+    editbox._editorInputBorder = editbox:CreateColorDrawable(0, 0, 0, 0.95, "background")
+    editbox._editorInputPlate = editbox:CreateColorDrawable(
+      EDITOR_UI.input[1], EDITOR_UI.input[2], EDITOR_UI.input[3], EDITOR_UI.input[4], "background")
+  end
+  if editbox._editorInputBorder then
+    if editbox._editorInputBorder.RemoveAllAnchors then editbox._editorInputBorder:RemoveAllAnchors() end
+    editbox._editorInputBorder:AddAnchor("TOPLEFT", editbox, -1, -1)
+    editbox._editorInputBorder:AddAnchor("BOTTOMRIGHT", editbox, 1, 1)
+    editbox._editorInputBorder:Show(true)
+  end
+  if editbox._editorInputPlate then
+    if editbox._editorInputPlate.RemoveAllAnchors then editbox._editorInputPlate:RemoveAllAnchors() end
+    editbox._editorInputPlate:AddAnchor("TOPLEFT", editbox, 0, 0)
+    editbox._editorInputPlate:AddAnchor("BOTTOMRIGHT", editbox, 0, 0)
+    editbox._editorInputPlate:Show(true)
+  end
+  if editbox.style then
+    if editbox.style.SetFontSize then editbox.style:SetFontSize(12) end
+    if editbox.style.SetAlign then editbox.style:SetAlign(ALIGN.LEFT) end
+    if editbox.style.SetColor then editbox.style:SetColor(1, 1, 1, 1) end
+  end
 end
 
 local function setEditorTextColor(widget, color)
@@ -767,7 +798,7 @@ function UIManager._createMainWindow()
       end
     end
 
-    local mainWindow = api.Interface:CreateWindow("TaxTrackerMain", "Tax Tracker", 1040, 620)
+    local mainWindow = gui.CreateStyledWindow("TaxTrackerMain", "Tax Tracker", 1040, 620)
     if not mainWindow then
       error("Failed to create window")
     end
@@ -820,50 +851,13 @@ function UIManager._createFormControls()
   local CHECK_Y = 316
   local COORD_Y = 390
 
-  addEditorPanel(mainWin, "editorRootPanel", 12, 42, 1016, 558, EDITOR_UI.panel)
-  addEditorPanel(mainWin, "editorHeaderPanel", 12, 42, 1016, 28, EDITOR_UI.header)
-  local editorTitle = mainWin:CreateChildWidget("label", "editorTitle", 0, true)
-  editorTitle:SetText("Land Editor")
-  editorTitle:SetExtent(260, 22)
-  editorTitle:AddAnchor("TOPLEFT", mainWin, 26, 47)
-  if editorTitle.style then
-    editorTitle.style:SetAlign(ALIGN.LEFT)
-    editorTitle.style:SetFontSize(13)
-  end
-  setEditorTextColor(editorTitle, EDITOR_UI.gold)
-  editorTitle:Show(true)
-
-  addEditorPanel(mainWin, "editorDetailsGroup", 20, 84, 1000, 150, EDITOR_UI.groupDetails)
-  addEditorPanel(mainWin, "editorDetailsHeader", 20, 84, 1000, 24, EDITOR_UI.header)
-  addEditorPanel(mainWin, "editorTaxGroup", 20, 242, 1000, 106, EDITOR_UI.groupTax)
-  addEditorPanel(mainWin, "editorTaxHeader", 20, 242, 1000, 24, EDITOR_UI.header)
-  addEditorPanel(mainWin, "editorCoordsGroup", 20, 358, 1000, 88, EDITOR_UI.groupCoords)
-  addEditorPanel(mainWin, "editorCoordsHeader", 20, 358, 1000, 24, EDITOR_UI.header)
+  gui.CreateCategoryPanel(mainWin, "editorDetailsPanel", 12, 42, 1016, 192, "Land Details")
+  gui.CreateCategoryPanel(mainWin, "editorTaxPanel", 12, 242, 1016, 106, "Tax Rules")
+  gui.CreateCategoryPanel(mainWin, "editorCoordsPanel", 12, 358, 1016, 88, "Coordinates")
+  addEditorPanel(mainWin, "editorDetailsGroup", 20, 84, 1000, 142, EDITOR_UI.groupDetails)
+  addEditorPanel(mainWin, "editorTaxGroup", 20, 274, 1000, 66, EDITOR_UI.groupTax)
+  addEditorPanel(mainWin, "editorCoordsGroup", 20, 390, 1000, 48, EDITOR_UI.groupCoords)
   addEditorPanel(mainWin, "editorActionsPanel", 28, 482, 984, 72, EDITOR_UI.groupActions)
-
-  local detailsTitle = mainWin:CreateChildWidget("label", "editorDetailsTitle", 0, true)
-  detailsTitle:SetText("Land Details")
-  detailsTitle:SetExtent(260, 20)
-  detailsTitle:AddAnchor("TOPLEFT", mainWin, 34, 88)
-  if detailsTitle.style then detailsTitle.style:SetAlign(ALIGN.LEFT); detailsTitle.style:SetFontSize(12) end
-  setEditorTextColor(detailsTitle, EDITOR_UI.gold)
-  detailsTitle:Show(true)
-
-  local taxTitle = mainWin:CreateChildWidget("label", "editorTaxTitle", 0, true)
-  taxTitle:SetText("Tax Rules")
-  taxTitle:SetExtent(260, 20)
-  taxTitle:AddAnchor("TOPLEFT", mainWin, 34, 246)
-  if taxTitle.style then taxTitle.style:SetAlign(ALIGN.LEFT); taxTitle.style:SetFontSize(12) end
-  setEditorTextColor(taxTitle, EDITOR_UI.gold)
-  taxTitle:Show(true)
-
-  local coordsTitle = mainWin:CreateChildWidget("label", "editorCoordsTitle", 0, true)
-  coordsTitle:SetText("Coordinates")
-  coordsTitle:SetExtent(260, 20)
-  coordsTitle:AddAnchor("TOPLEFT", mainWin, 34, 362)
-  if coordsTitle.style then coordsTitle.style:SetAlign(ALIGN.LEFT); coordsTitle.style:SetFontSize(12) end
-  setEditorTextColor(coordsTitle, EDITOR_UI.gold)
-  coordsTitle:Show(true)
 
   local function placeLabel(lbl, x, y, w)
     if not lbl then return end
@@ -899,11 +893,12 @@ function UIManager._createFormControls()
   UIManager.components.ownedLabel = ownedLabel
   
   -- Land Name field (full width at top) - using gui.AddEditBox like working version
-  addEditorPanel(mainWin, "editorLandNameInputBg", FIELD_X - 3, ROW1_Y - 1, 436, 30, EDITOR_UI.input)
+  addEditorInputBackplate(mainWin, "editorLandNameInputBg", FIELD_X - 3, ROW1_Y - 1, 436, 30)
   local landName = gui.AddEditBox(mainWin, "landName",
       "TOPLEFT", mainWin, LEFT_X, ROW1_Y, 500, 28, 64, "", "Land Name:")
   placeLabel(landName.label, LEFT_X, ROW1_Y + 2, LABEL_W)
   placeField(landName, FIELD_X, ROW1_Y, 430, 28)
+  styleEditorEditBox(landName)
   UIManager.components.landName = landName
   
   -- Character Selection Row - exactly like working version
@@ -933,7 +928,7 @@ function UIManager._createFormControls()
   end
   
   -- Character dropdown using the same clean dropdown treatment as the loan list
-  addEditorPanel(mainWin, "editorCharInputBg", FIELD_X - 3, ROW1_Y + ROW_H - 1, 186, 30, EDITOR_UI.input)
+  addEditorInputBackplate(mainWin, "editorCharInputBg", FIELD_X - 3, ROW1_Y + ROW_H - 1, 186, 30)
   local characterData = {
     { id = "characters", name = "Characters", tier = 0, expanded = true, value = "category_characters" }
   }
@@ -1051,7 +1046,7 @@ function UIManager._createFormControls()
   end
   
   -- Create land type dropdown using hierarchical implementation (like Zeroun's approach)
-  addEditorPanel(mainWin, "editorTypeInputBg", FIELD_X - 3, ROW1_Y + ROW_H * 2 - 1, 226, 30, EDITOR_UI.input)
+  addEditorInputBackplate(mainWin, "editorTypeInputBg", FIELD_X - 3, ROW1_Y + ROW_H * 2 - 1, 226, 30)
   local landTypeBtn = HierarchicalDropdown.create(mainWin, "landType", 220, hierarchicalLandTypes, "Select type", function(val, label)
     UIManager.recompute()
   end, 300, { cleanStyle = true })
@@ -1141,7 +1136,7 @@ function UIManager._createFormControls()
   }
   
   -- Create zone dropdown using hierarchical implementation (like Zeroun's approach)
-  addEditorPanel(mainWin, "editorZoneInputBg", RIGHT_X + 61, ROW1_Y + ROW_H * 2 - 1, 226, 30, EDITOR_UI.input)
+  addEditorInputBackplate(mainWin, "editorZoneInputBg", RIGHT_X + 61, ROW1_Y + ROW_H * 2 - 1, 226, 30)
   local zoneBtn = HierarchicalDropdown.create(mainWin, "zone", 220, hierarchicalZones, "Select zone", function(val, label)
   end, 300, { cleanStyle = true })
   zoneBtn:RemoveAllAnchors()
@@ -1151,19 +1146,21 @@ function UIManager._createFormControls()
   -- Tax Row (Base and Real side by side with proper spacing) - like working version
   gui.AddLabel(mainWin, "baseLabel", "Base Tax:", "TOPLEFT", mainWin, LEFT_X, TAX_Y)
   placeLabel(mainWin.baseLabel, LEFT_X, TAX_Y + 2, LABEL_W)
-  addEditorPanel(mainWin, "editorBaseTaxInputBg", FIELD_X - 3, TAX_Y - 1, 126, 30, EDITOR_UI.input)
+  addEditorInputBackplate(mainWin, "editorBaseTaxInputBg", FIELD_X - 3, TAX_Y - 1, 126, 30)
   local baseTaxValue = gui.AddEditBox(mainWin, "baseTaxValue",
       "TOPLEFT", mainWin, FIELD_X, TAX_Y, 120, 28, nil, "", nil)
   placeField(baseTaxValue, FIELD_X, TAX_Y, 120, 28)
+  styleEditorEditBox(baseTaxValue)
   if baseTaxValue.SetReadOnly then baseTaxValue:SetReadOnly(true) end
   UIManager.components.baseTaxValue = baseTaxValue
   
   gui.AddLabel(mainWin, "realLabel", "Real Tax:", "TOPLEFT", mainWin, RIGHT_X, TAX_Y + 2)
   placeLabel(mainWin.realLabel, RIGHT_X, TAX_Y + 2, 75)
-  addEditorPanel(mainWin, "editorRealTaxInputBg", RIGHT_X + 85, TAX_Y - 1, 126, 30, EDITOR_UI.input)
+  addEditorInputBackplate(mainWin, "editorRealTaxInputBg", RIGHT_X + 85, TAX_Y - 1, 126, 30)
   local realTaxValue = gui.AddEditBox(mainWin, "realTaxValue",
       "TOPLEFT", mainWin, RIGHT_X + 88, TAX_Y, 120, 28, nil, "", nil)
   placeField(realTaxValue, RIGHT_X + 88, TAX_Y, 120, 28)
+  styleEditorEditBox(realTaxValue)
   if realTaxValue.SetReadOnly then realTaxValue:SetReadOnly(true) end
   UIManager.components.realTaxValue = realTaxValue
   
@@ -1189,10 +1186,11 @@ function UIManager._createFormControls()
   placeLabel(mainWin.coordsHeader, LEFT_X, COORD_Y + 2, LABEL_W)
   
   -- Simple coordinate display (will enhance later with full lat/lon system)
-  addEditorPanel(mainWin, "editorCoordsInputBg", FIELD_X - 3, COORD_Y - 1, 336, 30, EDITOR_UI.input)
+  addEditorInputBackplate(mainWin, "editorCoordsInputBg", FIELD_X - 3, COORD_Y - 1, 336, 30)
   local coordsDisplay = gui.AddEditBox(mainWin, "coordsDisplay",
       "TOPLEFT", mainWin, FIELD_X, COORD_Y, 330, 28, nil, "0,0 (Click Track Position)", nil)
   placeField(coordsDisplay, FIELD_X, COORD_Y, 330, 28)
+  styleEditorEditBox(coordsDisplay)
   if coordsDisplay.SetReadOnly then coordsDisplay:SetReadOnly(true) end
   UIManager.components.coordsDisplay = coordsDisplay
   

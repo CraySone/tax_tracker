@@ -136,6 +136,151 @@ local function PrintControl(control, controlName)
     end
 end
 
+local function CreateStyledWindow(id, titleText, width, height, options)
+    local window = api.Interface:CreateEmptyWindow(id, "UIParent")
+    local rawSetExtent = window.SetExtent
+    local w = width or 620
+    local h = height or 760
+    local headerH = (options and options.headerHeight) or 36
+    local titleSize = (options and options.titleFontSize) or 18
+    window:AddAnchor("CENTER", "UIParent", 0, 0)
+
+    local border = window:CreateColorDrawable(0, 0, 0, 0.96, "background")
+    border:AddAnchor("TOPLEFT", window, 0, 0)
+    border:AddAnchor("BOTTOMRIGHT", window, 0, 0)
+    border:Show(true)
+
+    local body = window:CreateColorDrawable(0.06, 0.06, 0.068, 0.96, "background")
+    body:AddAnchor("TOPLEFT", window, 1, 1)
+    body:AddAnchor("BOTTOMRIGHT", window, -1, -1)
+    body:Show(true)
+
+    local header = window:CreateColorDrawable(0.09, 0.09, 0.11, 0.98, "background")
+    header:AddAnchor("TOPLEFT", window, 1, 1)
+    header:Show(true)
+
+    local title = window:CreateChildWidget("label", id .. "_title", 0, true)
+    title:AddAnchor("TOP", window, 0, 6)
+    title:SetText(titleText or "")
+    if title.SetAutoResize then title:SetAutoResize(false) end
+    if title.style then
+        title.style:SetFontSize(titleSize)
+        title.style:SetAlign(ALIGN.CENTER)
+        title.style:SetColor(1, 0.84, 0, 1)
+    end
+    title:Show(true)
+
+    local closeBtn = window:CreateChildWidget("button", id .. "_close", 0, true)
+    closeBtn:SetExtent(24, 22)
+    closeBtn:AddAnchor("TOPRIGHT", window, -10, 8)
+    closeBtn:SetText("")
+    local closeBorder = closeBtn:CreateColorDrawable(0, 0, 0, 0.92, "background")
+    closeBorder:AddAnchor("TOPLEFT", closeBtn, 0, 0)
+    closeBorder:AddAnchor("BOTTOMRIGHT", closeBtn, 0, 0)
+    closeBorder:Show(true)
+    local closeBg = closeBtn:CreateColorDrawable(0.14, 0.14, 0.16, 0.95, "background")
+    closeBg:AddAnchor("TOPLEFT", closeBtn, 1, 1)
+    closeBg:AddAnchor("BOTTOMRIGHT", closeBtn, -1, -1)
+    closeBg:Show(true)
+    local closeLabel = closeBtn:CreateChildWidget("label", id .. "_close_label", 0, true)
+    closeLabel:SetExtent(24, 20)
+    closeLabel:AddAnchor("TOPLEFT", closeBtn, 0, 1)
+    closeLabel:SetText("X")
+    if closeLabel.style then
+        closeLabel.style:SetFontSize(11)
+        closeLabel.style:SetAlign(ALIGN.CENTER)
+        closeLabel.style:SetColor(1, 1, 1, 1)
+    end
+    if closeLabel.EnablePick then closeLabel:EnablePick(false) end
+    closeLabel:Show(true)
+    closeBtn:SetHandler("OnClick", function() window:Show(false) end)
+    closeBtn:Show(true)
+    if closeBtn.Raise then closeBtn:Raise() end
+
+    local function refreshSize(nextW, nextH)
+        w = nextW or w
+        h = nextH or h
+        rawSetExtent(window, w, h)
+        header:SetExtent(math.max(1, w - 2), headerH)
+        title:SetExtent(math.max(1, w - 90), math.max(1, headerH - 8))
+    end
+
+    function window:SetExtent(nextW, nextH)
+        refreshSize(nextW, nextH)
+    end
+
+    local function startDrag()
+        if window.StartMoving then window:StartMoving() end
+        if api.Cursor and api.Cursor.ClearCursor then api.Cursor:ClearCursor() end
+        if api.Cursor and api.Cursor.SetCursorImage and CURSOR_PATH and CURSOR_PATH.MOVE then
+            api.Cursor:SetCursorImage(CURSOR_PATH.MOVE, 0, 0)
+        end
+    end
+
+    local function stopDrag()
+        if window.StopMovingOrSizing then window:StopMovingOrSizing() end
+        if api.Cursor and api.Cursor.ClearCursor then api.Cursor:ClearCursor() end
+    end
+
+    if window.Clickable then window:Clickable(true) end
+    if window.EnableDrag then window:EnableDrag(true) end
+    window:SetHandler("OnDragStart", startDrag)
+    window:SetHandler("OnDragStop", stopDrag)
+    if title.EnableDrag then title:EnableDrag(true) end
+    title:SetHandler("OnDragStart", startDrag)
+    title:SetHandler("OnDragStop", stopDrag)
+    if window.SetCloseOnEscape then window:SetCloseOnEscape(true) end
+    window:SetHandler("OnCloseByEsc", function() window:Show(false) return true end)
+
+    window.styledTitle = title
+    window.styledCloseButton = closeBtn
+    refreshSize(w, h)
+    window:Show(false)
+    return window
+end
+
+local function CreateCategoryPanel(parent, id, x, y, width, height, titleText)
+    if not (parent and parent.CreateChildWidget) then return nil end
+    local panel = parent:CreateChildWidget("emptywidget", id, 0, true)
+    panel:SetExtent(width, height)
+    panel:AddAnchor("TOPLEFT", parent, x, y)
+
+    local border = panel:CreateColorDrawable(0, 0, 0, 0.92, "background")
+    border:AddAnchor("TOPLEFT", panel, 0, 0)
+    border:AddAnchor("BOTTOMRIGHT", panel, 0, 0)
+    border:Show(true)
+
+    local bg = panel:CreateColorDrawable(0.045, 0.045, 0.052, 0.82, "background")
+    bg:AddAnchor("TOPLEFT", panel, 1, 1)
+    bg:AddAnchor("BOTTOMRIGHT", panel, -1, -1)
+    bg:Show(true)
+
+    local header = panel:CreateColorDrawable(0.09, 0.09, 0.11, 0.95, "background")
+    header:SetExtent(math.max(1, width - 2), 28)
+    header:AddAnchor("TOPLEFT", panel, 1, 1)
+    header:Show(true)
+
+    local accent = panel:CreateColorDrawable(1, 0.84, 0, 0.85, "background")
+    accent:SetExtent(4, 28)
+    accent:AddAnchor("TOPLEFT", panel, 1, 1)
+    accent:Show(true)
+
+    local title = panel:CreateChildWidget("label", id .. "_title", 0, true)
+    title:SetText(titleText or "")
+    title:SetExtent(math.max(1, width - 24), 18)
+    title:AddAnchor("TOPLEFT", panel, 14, 7)
+    if title.style then
+        title.style:SetFontSize(13)
+        title.style:SetAlign(ALIGN.LEFT)
+        title.style:SetColor(1, 0.84, 0, 1)
+    end
+    title:Show(true)
+
+    panel.categoryTitle = title
+    panel:Show(true)
+    return panel
+end
+
 
 --[[
 Generic function to add a button to a UI window with full customization options.
@@ -2170,6 +2315,8 @@ Export all functions for use in other modules
 ==========================================================================
 ]]
 return {
+    CreateStyledWindow = CreateStyledWindow,
+    CreateCategoryPanel = CreateCategoryPanel,
     AddButton = AddButton,
     AddLabel = AddLabel,
     AddCheckbox = AddCheckbox,

@@ -127,6 +127,19 @@ local function getOverdueLoans()
 end
 
 -- Create the reminder window content
+local function addInnerSurface(parent, id, x, y, width, height)
+  if not (parent and parent.CreateChildWidget) then return nil end
+  local surface = parent:CreateChildWidget("emptywidget", id, 0, true)
+  surface:SetExtent(width, height)
+  surface:AddAnchor("TOPLEFT", parent, x, y)
+  local bg = surface:CreateColorDrawable(0, 0, 0, 0.54, "background")
+  bg:AddAnchor("TOPLEFT", surface, 0, 0)
+  bg:AddAnchor("BOTTOMRIGHT", surface, 0, 0)
+  bg:Show(true)
+  surface:Show(true)
+  return surface
+end
+
 local function buildReminderContent(overdueLands, overdueLoans, dueFarms)
   Debug.info("ReminderWindow", "Building content", {hasWindow = reminderWin ~= nil})
   if not reminderWin then return end
@@ -141,146 +154,139 @@ local function buildReminderContent(overdueLands, overdueLoans, dueFarms)
   content:AddAnchor("TOPLEFT", reminderWin, 10, 50)
   reminderWin.content = content
   
-  local yOffset = 20
+  local yOffset = 0
   local hasOverdueItems = false
   
   -- OVERDUE LANDS SECTION
   if #overdueLands > 0 then
     hasOverdueItems = true
+    local panelHeight = 48 + (#overdueLands * 22) + 30
+    local panel = gui.CreateCategoryPanel(content, "landsPanel", 0, yOffset, 500, panelHeight, "Overdue Lands")
+    addInnerSurface(panel, "landsInner", 10, 36, 480, panelHeight - 46)
+    local panelY = 44
     
-    local landsHeader = content:CreateChildWidget("label", "landsHeader", 0, true)
-    landsHeader:SetText("OVERDUE LANDS - Tax Payment Required")
-    landsHeader:SetExtent(480, 25)
-    landsHeader:AddAnchor("TOPLEFT", content, 0, yOffset)
+    local landsHeader = panel:CreateChildWidget("label", "landsHeader", 0, true)
+    landsHeader:SetText("Tax Payment Required")
+    landsHeader:SetExtent(460, 20)
+    landsHeader:AddAnchor("TOPLEFT", panel, 20, panelY)
     if landsHeader.style then
-      landsHeader.style:SetFontSize(FONT_SIZE.LARGE)
+      landsHeader.style:SetFontSize(FONT_SIZE.MIDDLE)
       landsHeader.style:SetAlign(ALIGN.LEFT)
       landsHeader.style:SetColor(1, 0.3, 0.3, 1)
     end
-    yOffset = yOffset + 30
+    panelY = panelY + 24
     
     local totalTax = 0
     for _, land in ipairs(overdueLands) do
       totalTax = totalTax + land.tax
       
-      local landLabel = content:CreateChildWidget("label", "land_" .. _, 0, true)
+      local landLabel = panel:CreateChildWidget("label", "land_" .. _, 0, true)
       landLabel:SetText(string.format("  %s (%s) - %s tax", land.name, land.zoneName, formatTax(land.tax)))
-      landLabel:SetExtent(480, 20)
-      landLabel:AddAnchor("TOPLEFT", content, 0, yOffset)
+      landLabel:SetExtent(460, 20)
+      landLabel:AddAnchor("TOPLEFT", panel, 20, panelY)
       if landLabel.style then
         landLabel.style:SetFontSize(FONT_SIZE.MIDDLE)
         landLabel.style:SetAlign(ALIGN.LEFT)
       end
-      yOffset = yOffset + 22
+      panelY = panelY + 22
     end
     
-    local totalLabel = content:CreateChildWidget("label", "landsTotal", 0, true)
+    local totalLabel = panel:CreateChildWidget("label", "landsTotal", 0, true)
     totalLabel:SetText(string.format("Total Tax Due: %s certs", formatTax(totalTax)))
-    totalLabel:SetExtent(480, 22)
-    totalLabel:AddAnchor("TOPLEFT", content, 0, yOffset)
+    totalLabel:SetExtent(460, 22)
+    totalLabel:AddAnchor("TOPLEFT", panel, 20, panelY + 4)
     if totalLabel.style then
       totalLabel.style:SetFontSize(FONT_SIZE.MIDDLE)
       totalLabel.style:SetColor(1, 0.85, 0, 1)
     end
-    yOffset = yOffset + 35
+    yOffset = yOffset + panelHeight + 10
   end
   
   -- OVERDUE LOANS SECTION
   if #overdueLoans > 0 then
     hasOverdueItems = true
-    
-    local loansHeader = content:CreateChildWidget("label", "loansHeader", 0, true)
-    loansHeader:SetText("OVERDUE LOAN PAYMENTS")
-    loansHeader:SetExtent(480, 25)
-    loansHeader:AddAnchor("TOPLEFT", content, 0, yOffset)
-    if loansHeader.style then
-      loansHeader.style:SetFontSize(FONT_SIZE.LARGE)
-      loansHeader.style:SetAlign(ALIGN.LEFT)
-      loansHeader.style:SetColor(1, 0.3, 0.3, 1)
-    end
-    yOffset = yOffset + 30
+    local panelHeight = 44 + (#overdueLoans * 22) + 30
+    local panel = gui.CreateCategoryPanel(content, "loansPanel", 0, yOffset, 500, panelHeight, "Overdue Loan Payments")
+    addInnerSurface(panel, "loansInner", 10, 36, 480, panelHeight - 46)
+    local panelY = 44
     
     local totalRent = 0
     for _, loan in ipairs(overdueLoans) do
       totalRent = totalRent + loan.rentAmount
       
-      local loanLabel = content:CreateChildWidget("label", "loan_" .. _, 0, true)
+      local loanLabel = panel:CreateChildWidget("label", "loan_" .. _, 0, true)
       loanLabel:SetText(string.format("  %s -> %s - %s", loan.playerName, loan.landName, formatRent(loan.rentAmount)))
-      loanLabel:SetExtent(480, 20)
-      loanLabel:AddAnchor("TOPLEFT", content, 0, yOffset)
+      loanLabel:SetExtent(460, 20)
+      loanLabel:AddAnchor("TOPLEFT", panel, 20, panelY)
       if loanLabel.style then
         loanLabel.style:SetFontSize(FONT_SIZE.MIDDLE)
         loanLabel.style:SetAlign(ALIGN.LEFT)
       end
-      yOffset = yOffset + 22
+      panelY = panelY + 22
     end
     
-    local totalLoansLabel = content:CreateChildWidget("label", "loansTotal", 0, true)
+    local totalLoansLabel = panel:CreateChildWidget("label", "loansTotal", 0, true)
     totalLoansLabel:SetText(string.format("Total Rent Due: %s", formatRent(totalRent)))
-    totalLoansLabel:SetExtent(480, 22)
-    totalLoansLabel:AddAnchor("TOPLEFT", content, 0, yOffset)
+    totalLoansLabel:SetExtent(460, 22)
+    totalLoansLabel:AddAnchor("TOPLEFT", panel, 20, panelY + 4)
     if totalLoansLabel.style then
       totalLoansLabel.style:SetFontSize(FONT_SIZE.MIDDLE)
       totalLoansLabel.style:SetColor(1, 0.85, 0, 1)
     end
-    yOffset = yOffset + 35
+    yOffset = yOffset + panelHeight + 10
   end
 
   -- FARMS SECTION
   if #dueFarms > 0 then
     hasOverdueItems = true
-
-    local farmsHeader = content:CreateChildWidget("label", "farmsHeader", 0, true)
-    farmsHeader:SetText("FARMS DONE OR FINISHING SOON")
-    farmsHeader:SetExtent(480, 25)
-    farmsHeader:AddAnchor("TOPLEFT", content, 0, yOffset)
-    if farmsHeader.style then
-      farmsHeader.style:SetFontSize(FONT_SIZE.LARGE)
-      farmsHeader.style:SetAlign(ALIGN.LEFT)
-      farmsHeader.style:SetColor(1, 0.85, 0, 1)
-    end
-    yOffset = yOffset + 30
+    local shownFarms = math.min(#dueFarms, 10)
+    local panelHeight = 44 + (shownFarms * 22) + (#dueFarms > 10 and 22 or 0) + 12
+    local panel = gui.CreateCategoryPanel(content, "farmsPanel", 0, yOffset, 500, panelHeight, "Farms Done Or Finishing Soon")
+    addInnerSurface(panel, "farmsInner", 10, 36, 480, panelHeight - 46)
+    local panelY = 44
 
     for i, farm in ipairs(dueFarms) do
       if i > 10 then
-        local moreLabel = content:CreateChildWidget("label", "farm_more", 0, true)
+        local moreLabel = panel:CreateChildWidget("label", "farm_more", 0, true)
         moreLabel:SetText(string.format("  ...and %d more", #dueFarms - 10))
-        moreLabel:SetExtent(480, 20)
-        moreLabel:AddAnchor("TOPLEFT", content, 0, yOffset)
+        moreLabel:SetExtent(460, 20)
+        moreLabel:AddAnchor("TOPLEFT", panel, 20, panelY)
         if moreLabel.style then moreLabel.style:SetFontSize(FONT_SIZE.MIDDLE); moreLabel.style:SetAlign(ALIGN.LEFT) end
-        yOffset = yOffset + 22
         break
       end
 
-      local farmLabel = content:CreateChildWidget("label", "farm_" .. i, 0, true)
+      local farmLabel = panel:CreateChildWidget("label", "farm_" .. i, 0, true)
       farmLabel:SetText(string.format("  %s (%s) - %s", farm.name, farm.zoneName, formatFarmTime(farm.remaining)))
-      farmLabel:SetExtent(480, 20)
-      farmLabel:AddAnchor("TOPLEFT", content, 0, yOffset)
+      farmLabel:SetExtent(460, 20)
+      farmLabel:AddAnchor("TOPLEFT", panel, 20, panelY)
       if farmLabel.style then
         farmLabel.style:SetFontSize(FONT_SIZE.MIDDLE)
         farmLabel.style:SetAlign(ALIGN.LEFT)
       end
-      yOffset = yOffset + 22
+      panelY = panelY + 22
     end
-    yOffset = yOffset + 15
+    yOffset = yOffset + panelHeight + 10
   end
   
   -- NO OVERDUE ITEMS
   if not hasOverdueItems then
-    local noItemsLabel = content:CreateChildWidget("label", "noItems", 0, true)
+    local panel = gui.CreateCategoryPanel(content, "statusPanel", 0, yOffset, 500, 96, "Status")
+    addInnerSurface(panel, "statusInner", 10, 36, 480, 48)
+    local noItemsLabel = panel:CreateChildWidget("label", "noItems", 0, true)
     noItemsLabel:SetText("No overdue payments!")
-    noItemsLabel:SetExtent(480, 30)
-    noItemsLabel:AddAnchor("TOPLEFT", content, 0, yOffset + 20)
+    noItemsLabel:SetExtent(460, 30)
+    noItemsLabel:AddAnchor("TOPLEFT", panel, 20, 48)
     if noItemsLabel.style then
       noItemsLabel.style:SetFontSize(FONT_SIZE.LARGE)
       noItemsLabel.style:SetAlign(ALIGN.CENTER)
       noItemsLabel.style:SetColor(0.4, 1, 0.4, 1)
     end
-    yOffset = yOffset + 60
+    yOffset = yOffset + 106
   end
   
   -- Resize window to fit content
-  local newHeight = math.max(200, yOffset + 60)
+  local newHeight = math.max(200, yOffset + 70)
+  content:SetExtent(500, math.max(400, yOffset))
   reminderWin:SetExtent(520, newHeight)
 end
 
@@ -310,16 +316,7 @@ function ReminderWindow.show(isExit)
   local title = isExit and "Tax Tracker - Exit Reminder" or "Tax Tracker - Login Reminder"
   
   if not reminderWin then
-    reminderWin = api.Interface:CreateWindow("TaxTrackerReminder", title, 0, 0)
-    reminderWin:SetExtent(520, 300)
-    reminderWin:AddAnchor("CENTER", "UIParent", 0, 0)
-    
-    -- Handle ESC key to close
-    local winForEsc = reminderWin
-    reminderWin:SetCloseOnEscape(true)
-    reminderWin:SetHandler("OnCloseByEsc", function()
-      winForEsc:Show(false)
-    end)
+    reminderWin = gui.CreateStyledWindow("TaxTrackerReminder", title, 520, 300)
     
     -- Background tint - start below title bar
     local bg = reminderWin:CreateChildWidget("textbox", "bg", 0, true)
@@ -329,7 +326,7 @@ function ReminderWindow.show(isExit)
     if bg.style and bg.style.SetColor then bg.style:SetColor(0, 0, 0, 0.7) end
     if bg.Enable then bg:Enable(false) end
   else
-    reminderWin:SetTitle(title)
+    if reminderWin.styledTitle then reminderWin.styledTitle:SetText(title) end
   end
   
   buildReminderContent(overdueLands, overdueLoans, dueFarms)

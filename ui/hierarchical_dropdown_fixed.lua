@@ -9,14 +9,17 @@ local openDropdowns = {}
 
 local function closeAllDropdowns()
   Debug.info("HierarchicalDropdown", "Closing all open dropdowns", {count = #openDropdowns})
-  for i, dropdown in ipairs(openDropdowns) do
-    if dropdown.menu and dropdown.menu.Show then
+  for i = #openDropdowns, 1, -1 do
+    local dropdown = openDropdowns[i]
+    if dropdown.close then
+      dropdown.close()
+    elseif dropdown.menu and dropdown.menu.Show then
       dropdown.menu:Show(false)
+      if dropdown.overlay and dropdown.overlay.Show then
+        dropdown.overlay:Show(false)
+      end
+      dropdown.isOpen = false
     end
-    if dropdown.overlay and dropdown.overlay.Show then
-      dropdown.overlay:Show(false)
-    end
-    dropdown.isOpen = false
   end
   openDropdowns = {}
 end
@@ -56,6 +59,12 @@ end
 local function setCleanDrawableColor(drawable, color)
   if drawable and drawable.SetColor and color then
     drawable:SetColor(color[1], color[2], color[3], color[4] or 0.92)
+  end
+end
+
+local function clearAnchors(widget)
+  if widget and widget.RemoveAllAnchors then
+    pcall(function() widget:RemoveAllAnchors() end)
   end
 end
 
@@ -140,38 +149,44 @@ function HierarchicalDropdown.create(parent, id, width, hierarchicalData, defaul
   end
   
   -- Create menu container
-  local menu = api.Interface:CreateWindow(id..".menu", "", width + 20, 0)
+  local menu = api.Interface:CreateEmptyWindow(id..".menu", "UIParent")
   menu:AddAnchor("TOPLEFT", btn, -10, btn:GetHeight() + 2)
   menu:Show(false)
-  
-  -- Add background
-  if cleanStyle and menu.CreateColorDrawable then
-    local bg = menu:CreateColorDrawable(CLEAN.PANEL[1], CLEAN.PANEL[2], CLEAN.PANEL[3], CLEAN.PANEL[4], "background")
-    bg:AddAnchor("TOPLEFT", menu, 0, 0)
-    bg:AddAnchor("BOTTOMRIGHT", menu, 0, 0)
-    bg:Show(true)
-  else
-    local bg = menu:CreateChildWidget("emptywidget", id .. "_bg", 0, true)
-    bg:AddAnchor("TOPLEFT", menu, 0, 0)
-    bg:AddAnchor("BOTTOMRIGHT", menu, 0, 0)
-    if bg.SetColor then bg:SetColor(0.1, 0.1, 0.1, 0.9) end
-  end
+
+  local menuBorder = menu:CreateColorDrawable(0, 0, 0, 0.95, "background")
+  menuBorder:AddAnchor("TOPLEFT", menu, 0, 0)
+  menuBorder:AddAnchor("BOTTOMRIGHT", menu, 0, 0)
+  menuBorder:Show(true)
+
+  local menuBg = menu:CreateColorDrawable(CLEAN.PANEL[1], CLEAN.PANEL[2], CLEAN.PANEL[3], CLEAN.PANEL[4], "background")
+  menuBg:AddAnchor("TOPLEFT", menu, 1, 1)
+  menuBg:AddAnchor("BOTTOMRIGHT", menu, -1, -1)
+  menuBg:Show(true)
+
+  local dropdown = {menu = menu, overlay = nil, isOpen = false}
   
   -- Create overlay for click-away detection
   local overlay = api.Interface:CreateEmptyWindow(id .. "_overlay")
   overlay:AddAnchor("TOPLEFT", "UIParent", 0, 0)
   overlay:AddAnchor("BOTTOMRIGHT", "UIParent", 0, 0)
   overlay:Show(false)
-  
-  function overlay:OnMouseUp()
-    Debug.trace("HierarchicalDropdown", "Overlay clicked - closing dropdown")
+  dropdown.overlay = overlay
+
+  local function closeDropdown()
     menu:Show(false)
     overlay:Show(false)
     isOpen = false
-    unregisterDropdown({menu = menu, overlay = overlay, isOpen = isOpen})
+    dropdown.isOpen = false
+    unregisterDropdown(dropdown)
+  end
+  dropdown.close = closeDropdown
+
+  function overlay:OnMouseUp()
+    Debug.trace("HierarchicalDropdown", "Overlay clicked - closing dropdown")
+    closeDropdown()
   end
   overlay:SetHandler("OnMouseUp", overlay.OnMouseUp)
-  
+
   -- Filter visible items based on hierarchy
   local function filterVisibleItems()
     Debug.info("HierarchicalDropdown", "Filtering visible items")
@@ -234,6 +249,18 @@ function HierarchicalDropdown.create(parent, id, width, hierarchicalData, defaul
     local itemHeight = 24
     local calculatedHeight = math.min(#visibleData * itemHeight + 10, maxHeight or 300)
     menu:SetExtent(width + 20, calculatedHeight)
+    if menuBorder then
+      clearAnchors(menuBorder)
+      menuBorder:AddAnchor("TOPLEFT", menu, 0, 0)
+      menuBorder:AddAnchor("BOTTOMRIGHT", menu, 0, 0)
+      menuBorder:Show(true)
+    end
+    if menuBg then
+      clearAnchors(menuBg)
+      menuBg:AddAnchor("TOPLEFT", menu, 1, 1)
+      menuBg:AddAnchor("BOTTOMRIGHT", menu, -1, -1)
+      menuBg:Show(true)
+    end
     
     local yOffset = 5
     
@@ -370,10 +397,7 @@ function HierarchicalDropdown.create(parent, id, width, hierarchicalData, defaul
           if onChanged then 
             onChanged(item.value or item.name, item.name, item.landData)
           end
-          menu:Show(false)
-          overlay:Show(false)
-          isOpen = false
-          unregisterDropdown({menu = menu, overlay = overlay, isOpen = isOpen})
+          closeDropdown()
         end
       end
       itemBtn:SetHandler("OnClick", itemBtn.OnClick)
@@ -431,10 +455,7 @@ function HierarchicalDropdown.create(parent, id, width, hierarchicalData, defaul
   function btn:OnClick()
     if isOpen then
       Debug.info("HierarchicalDropdown", "Closing dropdown")
-      menu:Show(false)
-      overlay:Show(false)
-      isOpen = false
-      unregisterDropdown({menu = menu, overlay = overlay, isOpen = isOpen})
+      closeDropdown()
     else
       Debug.info("HierarchicalDropdown", "Opening dropdown - closing all others first")
       -- Close all other open dropdowns first
@@ -446,9 +467,10 @@ function HierarchicalDropdown.create(parent, id, width, hierarchicalData, defaul
       menu:Show(true)
       menu:Raise()
       isOpen = true
+      dropdown.isOpen = true
       
       -- Register this dropdown as open
-      registerDropdown({menu = menu, overlay = overlay, isOpen = isOpen})
+      registerDropdown(dropdown)
     end
   end
   btn:SetHandler("OnClick", btn.OnClick)
