@@ -205,7 +205,7 @@ function TimeSystem.getTimeColor(deadlineData)
   else
     -- New persistent format
     local createdTimeStr = deadlineData.createdAtLocalTime
-    local daysFromCreation = deadlineData.daysFromCreation or 7
+    local daysFromCreation = deadlineData.durationDays or deadlineData.daysFromCreation or 7
     
     if not createdTimeStr then
       return {1, 1, 1, 1} -- White for errors

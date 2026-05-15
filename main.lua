@@ -44,6 +44,266 @@ local addon = {
 -- Global state
 local listData = {}
 local isInitialized = false
+local LEGACY_ROOT_IMPORT_DONE_KEY = "legacyRootImportDone"
+
+local function settingsTableHasItems(value)
+  return type(value) == "table" and #value > 0
+end
+
+local function decodeLegacySettingsFile(raw)
+  if type(raw) ~= "string" or raw == "" then return nil, "empty file" end
+
+  local chunkText = raw
+  if string.sub(chunkText, 1, 1) == "\"" then
+    chunkText = string.gsub(chunkText, "^%s*\"", "")
+    chunkText = string.gsub(chunkText, "\"%s*$", "")
+    chunkText = string.gsub(chunkText, "\\\r\n", "\n")
+    chunkText = string.gsub(chunkText, "\\\n", "\n")
+    chunkText = string.gsub(chunkText, "\\\"", "\"")
+  end
+
+  chunkText = string.gsub(chunkText, "^%s*return%s+", "")
+
+  local pos = 1
+  local len = string.len(chunkText)
+
+  local parseValue
+
+  local function skipSpace()
+    while pos <= len do
+      local c = string.sub(chunkText, pos, pos)
+      if c ~= " " and c ~= "\n" and c ~= "\r" and c ~= "\t" then return end
+      pos = pos + 1
+    end
+  end
+
+  local function parseString()
+    if string.sub(chunkText, pos, pos) ~= "\"" then return nil, "expected string" end
+    pos = pos + 1
+    local parts = {}
+    while pos <= len do
+      local c = string.sub(chunkText, pos, pos)
+      if c == "\"" then
+        pos = pos + 1
+        return table.concat(parts)
+      elseif c == "\\" then
+        local nextChar = string.sub(chunkText, pos + 1, pos + 1)
+        if nextChar == "n" then
+          table.insert(parts, "\n")
+        elseif nextChar == "r" then
+          table.insert(parts, "\r")
+        elseif nextChar == "t" then
+          table.insert(parts, "\t")
+        else
+          table.insert(parts, nextChar)
+        end
+        pos = pos + 2
+      else
+        table.insert(parts, c)
+        pos = pos + 1
+      end
+    end
+    return nil, "unterminated string"
+  end
+
+  local function parseNumber()
+    local startPos = pos
+    while pos <= len do
+      local c = string.sub(chunkText, pos, pos)
+      if not string.find(c, "[%d%+%-eE%.]") then break end
+      pos = pos + 1
+    end
+    local value = tonumber(string.sub(chunkText, startPos, pos - 1))
+    if value == nil then return nil, "invalid number" end
+    return value
+  end
+
+  local function parseIdentifier()
+    local startPos = pos
+    while pos <= len do
+      local c = string.sub(chunkText, pos, pos)
+      if not string.find(c, "[%w_]") then break end
+      pos = pos + 1
+    end
+    local word = string.sub(chunkText, startPos, pos - 1)
+    if word == "true" then return true end
+    if word == "false" then return false end
+    if word == "nil" then return nil end
+    return nil, "unknown identifier " .. tostring(word)
+  end
+
+  local function parseTable()
+    if string.sub(chunkText, pos, pos) ~= "{" then return nil, "expected table" end
+    pos = pos + 1
+    local result = {}
+    local arrayIndex = 1
+
+    while pos <= len do
+      skipSpace()
+      local c = string.sub(chunkText, pos, pos)
+      if c == "}" then
+        pos = pos + 1
+        return result
+      end
+
+      local key = nil
+      local value = nil
+      local err = nil
+
+      if c == "[" then
+        pos = pos + 1
+        skipSpace()
+        key, err = parseValue()
+        if err then return nil, err end
+        skipSpace()
+        if string.sub(chunkText, pos, pos) ~= "]" then return nil, "expected ]" end
+        pos = pos + 1
+        skipSpace()
+        if string.sub(chunkText, pos, pos) ~= "=" then return nil, "expected =" end
+        pos = pos + 1
+        skipSpace()
+        value, err = parseValue()
+        if err then return nil, err end
+        result[key] = value
+      else
+        value, err = parseValue()
+        if err then return nil, err end
+        result[arrayIndex] = value
+        arrayIndex = arrayIndex + 1
+      end
+
+      skipSpace()
+      c = string.sub(chunkText, pos, pos)
+      if c == "," or c == ";" then pos = pos + 1 end
+    end
+
+    return nil, "unterminated table"
+  end
+
+  function parseValue()
+    skipSpace()
+    local c = string.sub(chunkText, pos, pos)
+    if c == "{" then return parseTable() end
+    if c == "\"" then return parseString() end
+    if string.find(c, "[%d%-]") then return parseNumber() end
+    return parseIdentifier()
+  end
+
+  local data, err = parseValue()
+  if err then return nil, err end
+  if type(data) ~= "table" then return nil, "decoded data is not a table" end
+
+  return data
+end
+
+local function landImportKey(land)
+  if type(land) ~= "table" then return nil end
+  return table.concat({
+    tostring(land.id or ""),
+    tostring(land.name or ""),
+    tostring(land.zoneName or ""),
+    tostring(land.character or ""),
+    tostring(land.landType or "")
+  }, "|")
+end
+
+local function mergeLegacyAndCurrentLands(legacyLands, currentLands)
+  local merged = {}
+  local seen = {}
+
+  for _, land in ipairs(legacyLands or {}) do
+    table.insert(merged, land)
+    local key = landImportKey(land)
+    if key then seen[key] = true end
+  end
+
+  for _, land in ipairs(currentLands or {}) do
+    local key = landImportKey(land)
+    if not key or not seen[key] then
+      table.insert(merged, land)
+      if key then seen[key] = true end
+    end
+  end
+
+  return merged
+end
+
+local function loadLegacyRootSettings()
+  if not api or not api.File or not api.File.Read then
+    return nil, "api.File.Read unavailable"
+  end
+
+  local ok, raw = pcall(function()
+    return api.File:Read("tax_tracker_data.lua")
+  end)
+  if not ok or type(raw) ~= "string" or raw == "" then
+    return nil, raw or "tax_tracker_data.lua missing"
+  end
+
+  return decodeLegacySettingsFile(raw)
+end
+
+local function importLegacyRootSettingsIfNeeded()
+  local settings = api.GetSettings("tax_tracker") or {}
+  if settings[LEGACY_ROOT_IMPORT_DONE_KEY] then
+    return false
+  end
+
+  local currentLands = settings.lands or {}
+  local currentCount = settingsTableHasItems(currentLands) and #currentLands or 0
+
+  local legacyData, legacyErr = loadLegacyRootSettings()
+  if not legacyData then
+    Debug.info("Main", "Legacy root settings import skipped", {error = tostring(legacyErr)})
+    return false
+  end
+
+  if not settingsTableHasItems(legacyData.lands) then
+    Debug.info("Main", "Legacy root settings had no lands to import")
+    return false
+  end
+
+  local legacyCount = #legacyData.lands
+  if currentCount > 0 and legacyCount <= currentCount then
+    settings[LEGACY_ROOT_IMPORT_DONE_KEY] = true
+    pcall(function()
+      api.SaveSettings()
+    end)
+    Debug.info("Main", "Legacy root settings import skipped - current settings have equal/more lands", {
+      currentCount = currentCount,
+      legacyCount = legacyCount
+    })
+    return false
+  end
+
+  local mergedLands = mergeLegacyAndCurrentLands(legacyData.lands, currentLands)
+  for key, value in pairs(legacyData) do
+    settings[key] = value
+  end
+  settings.lands = mergedLands
+  settings.hasBeenInitialized = true
+  settings.landsBackup = mergedLands
+  settings[LEGACY_ROOT_IMPORT_DONE_KEY] = true
+
+  local saveOk = pcall(function()
+    api.SaveSettings()
+  end)
+
+  if saveOk then
+    Debug.warn("Main", "Imported legacy root settings", {
+      landCount = #mergedLands,
+      farmCount = legacyData.farms and #legacyData.farms or 0,
+      loanCount = legacyData.loansData and #legacyData.loansData or 0
+    })
+    if api.Log and api.Log.Info then
+      api.Log:Info("[Tax Tracker] Restored data from tax_tracker_data.lua. Reload once if loans/farms were already open.")
+    end
+  else
+    Debug.error("Main", "Failed to save imported legacy root settings")
+  end
+
+  return saveOk
+end
 
 -- Initialize all modular components
 local function initializeModules()
@@ -168,6 +428,14 @@ local function loadData()
 
   -- SMART DATA RECOVERY: Only inject default backup if settings are truly empty (first run)
   if #listData == 0 then
+    if importLegacyRootSettingsIfNeeded() then
+      settings = api.GetSettings("tax_tracker") or settings
+      rawLands = settings.lands or {}
+      listData = rawLands
+    end
+  end
+
+  if #listData == 0 then
     local isFirstTime = not settings.lands and not settings.hasBeenInitialized
 
     if isFirstTime then
@@ -257,6 +525,10 @@ local function Load()
   
   -- EMERGENCY: Clean up any broken state from previous loads
   emergencyCleanup()
+
+  -- If the addon settings were wiped but the old root data file was restored,
+  -- import it before subsystem initialization so loans/farms see the data too.
+  importLegacyRootSettingsIfNeeded()
   
   -- Initialize all systems
   initializeModules()

@@ -23,6 +23,7 @@ local disambigLabel = nil
 local disambigButtons = {}
 local pendingMatches = nil   -- Lands matching a recent tax payment
 local pendingCount = 0       -- How many certs were consumed
+local EARLY_PAYMENT_WINDOW_MS = 8 * 60 * 60 * 1000
 
 -- Recognized cert types. Both regular and bound certs can be used to pay tax,
 -- so auto-detect needs to accept either. Table form makes adding more variants
@@ -163,16 +164,21 @@ end
 
 -- Find lands that match a given tax certificate count AND need payment.
 -- "Need payment" means either: nextPayment timer says overdue, OR no timer
--- exists yet (a new land that's never been marked paid). Lands with a
--- running countdown are skipped — paying again would be a double-pay and
--- the user almost certainly didn't mean that one.
+-- exists yet (a new land that's never been marked paid), OR the countdown is
+-- inside the short early-payment/mail window. That last case covers the game
+-- letting tax be paid a few hours before the tracked deadline.
 local function findMatchingLands(certCount)
   if not landsData or not certCount or certCount <= 0 then return {} end
 
   local matches = {}
   for _, land in ipairs(landsData) do
     if land.tax and tonumber(land.tax) == certCount then
-      local needsPayment = (land.nextPayment == nil) or TimeSystem.isOverdue(land.nextPayment)
+      local nearDue = false
+      if land.nextPayment ~= nil and not TimeSystem.isOverdue(land.nextPayment) then
+        local ok, timeLeftMs = pcall(TimeSystem.getTimeLeft, land.nextPayment)
+        nearDue = ok and timeLeftMs and timeLeftMs > 0 and timeLeftMs <= EARLY_PAYMENT_WINDOW_MS
+      end
+      local needsPayment = (land.nextPayment == nil) or TimeSystem.isOverdue(land.nextPayment) or nearDue
       if needsPayment then
         table.insert(matches, land)
       end

@@ -3577,7 +3577,7 @@ end
 -- ============================================================
 
 local SETTINGS_W = 500
-local SETTINGS_H = 660
+local SETTINGS_H = 744
 
 local function openSettingsWindow()
     if settingsWin then
@@ -3857,6 +3857,28 @@ local function openSettingsWindow()
         refreshSettingsLabels()
         if spotListWin and spotListWin:IsVisible() and spotListWin._spotType == "mineral" then
             rebuildSpotListWindow()
+        end
+    end)
+
+    gui.CreateCategoryPanel(settingsWin, "ft_fb_backup_panel", 12, 648, SETTINGS_W - 24, 80, "Data Backup")
+    panel(20, 686, SETTINGS_W - 40, 34, ui.groupActions)
+    label("ft_fb_backup_lbl", "Manual backup file", 30, 692, 190, ui.white)
+    button("ft_fb_export_data", "Export Backup", 300, 690, 160, 24, ui.green, function()
+        saveSettings()
+        local ok, backup = pcall(require, "tax_tracker/utils/settings_export")
+        if not ok or not backup or not backup.exportTaxTrackerSettings then
+            api.Log:Info("[Tax Tracker] Export failed: backup module unavailable")
+            return
+        end
+        local success, result = backup.exportTaxTrackerSettings()
+        if success then
+            api.Log:Info(string.format("[Tax Tracker] Exported backup to %s (%d lands, %d farms, %d loans)",
+                tostring(result.file or "tax_tracker_data.lua"),
+                tonumber(result.lands) or 0,
+                tonumber(result.farms) or 0,
+                tonumber(result.loans) or 0))
+        else
+            api.Log:Info("[Tax Tracker] Export failed: " .. tostring(result))
         end
     end)
 
