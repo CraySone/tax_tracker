@@ -23,7 +23,7 @@ local disambigLabel = nil
 local disambigButtons = {}
 local pendingMatches = nil   -- Lands matching a recent tax payment
 local pendingCount = 0       -- How many certs were consumed
-local EARLY_PAYMENT_WINDOW_MS = 8 * 60 * 60 * 1000
+local EARLY_PAYMENT_WINDOW_MS = 24 * 60 * 60 * 1000
 
 -- Recognized cert types. Both regular and bound certs can be used to pay tax,
 -- so auto-detect needs to accept either. Table form makes adding more variants
@@ -187,13 +187,13 @@ local function findMatchingLands(certCount)
   return matches
 end
 
--- Mark a specific land as paid (replicates landtable.lua Paid button logic)
+-- Mark a specific land as paid from automatic tax-certificate detection.
+-- Unlike the manual Paid button, auto-detected payments reset from now so
+-- early-payable mail does not preserve leftover hours (e.g. 7d 5h).
 local function markLandPaid(land)
   if not land then return end
 
-
-  -- Update payment timer (same as Paid button in landtable.lua)
-  land.nextPayment = TimeSystem.markPaid(land.nextPayment)
+  land.nextPayment = TimeSystem.createCountdownTimer(7)
   land.isOverdue = TimeSystem.isOverdue(land.nextPayment)
 
   -- Save to settings
@@ -316,7 +316,7 @@ local function showDisambigPopup(matches, certCount)
   if disambigWin and disambigWin.Show then
     disambigWin:Show(false)
   end
-  
+
   createDisambigWindow()
   clearDisambigButtons()
 
